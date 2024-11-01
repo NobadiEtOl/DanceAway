@@ -24,7 +24,6 @@ public class LevelManager : MonoBehaviour
     private bool flag5=true;
     public void LoadLevel()
     {
-        print("loadLevel1");
         gc.levelNo++;
         if((gc.levelNo%5)==0 && flag5)
         {   
@@ -36,7 +35,6 @@ public class LevelManager : MonoBehaviour
         gc.trianglesSpawned = 0;
         gc.isSpawningEnemies = true;
         gc.enemiesKilled = 0;
-        print("loadLevel1;");
     }
 
     private IEnumerator Load5()
@@ -54,8 +52,8 @@ public class LevelManager : MonoBehaviour
 
     private void StartMusic()
     {
-        beatTimer.beatCounter=-1;
         beatTimer.play=true;
+        beatTimer.beatCounter=-1;
     }
 
     private void StopMusic()
@@ -133,6 +131,8 @@ public class LevelManager : MonoBehaviour
                 audioSources[i].pitch = 1.1667f;
             }
         }
+
+        beatTimer.audioDelay =  beatTimer.beatInterval*0.9f;//adjusting the delay according to the new beatInterval
     }
 
     private void OpenLevelText()

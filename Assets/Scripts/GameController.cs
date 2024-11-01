@@ -56,7 +56,21 @@ public class GameController : MonoBehaviour
     private EnemySpawner enemySpawner;
     private GridController gridController;
     private SwipeController swipeController;
-
+    public bool canStart=false;
+    [SerializeField]private GameObject startScreen;
+    [SerializeField]private GameObject settingScreen;
+    [SerializeField]private GameObject healthBar;
+    [SerializeField]private GameObject scoreObj;
+    [SerializeField]private Text endScore;
+    public void StartHandleBeatCor()
+    {
+        canStart = true;
+        player.score = 0;
+        scoreObj.SetActive(true);
+        player.PlaceScore();
+        healthBar.SetActive(true);
+        startScreen.SetActive(false);
+    }
     void Start()
     {
         // Initializing the arena grid and Centering the camera
@@ -70,7 +84,9 @@ public class GameController : MonoBehaviour
         gridController = GetComponent<GridController>();
         gridController.Initialize();
         crowdController.Initialize(beatTimer,width,height,tileSize);
-        swipeController = GameObject.Find("SwipeController").GetComponent<SwipeController>();
+        //swipeController = GameObject.Find("SwipeController").GetComponent<SwipeController>();
+
+        settingScreen.SetActive(false);
 
         CenterCamera();
 
@@ -105,8 +121,10 @@ public class GameController : MonoBehaviour
     {
 
         beatCounter++;
+        print("gameController");
+        print("gameController: " + beatCounter);
 
-        StartCoroutine(HandleBeatCoroutine());
+        if(canStart)StartCoroutine(HandleBeatCoroutine());
         
         foreach (var spotlight in spotlights)
         {
@@ -193,7 +211,6 @@ public class GameController : MonoBehaviour
     public void PlayHand()
     {   
         avarage=avarage/16;
-        //print(avarage);
         // Plays different hands(beats) according to both the avarage of the player and the current level no.
         if(avarage<100)
         {
@@ -416,7 +433,7 @@ public class GameController : MonoBehaviour
         //Centers the camera to have same positioning ratios in different devices
         float centerX = (width * tileSize - tileSize) / 2.0f;
 
-        float yScreenPosition = Screen.height * 0.5f;
+        float yScreenPosition = Screen.height * 0.6f;
         Vector3 worldPosition = Camera.main.ScreenToWorldPoint(new Vector3(0, yScreenPosition, Camera.main.nearClipPlane));
 
         Camera.main.transform.position = new Vector3(centerX, worldPosition.y, Camera.main.transform.position.z);
@@ -462,6 +479,7 @@ public class GameController : MonoBehaviour
     void StartGame()
     {
         ChangeState(GameState.Play);
+        //beatTimer.StartAfterDelay();
         totalTrianglesToSpawn = levelNo;
         trianglesSpawned = 0;
         isSpawningEnemies = true;
@@ -579,6 +597,7 @@ public class GameController : MonoBehaviour
     
     public void OpenEndScreen()
     {
+        endScore.text = player.score.ToString();
         endScreen.SetActive(true);
     }
 
@@ -590,6 +609,17 @@ public class GameController : MonoBehaviour
             tempBounds.Add(gridBounds[i]);
         }
         return tempBounds;
+    }
+
+    public void  OpenSettingScreen()
+    {
+        settingScreen.SetActive(true);
+    }
+
+    public void CloseSettingScreen()
+    {
+        settingScreen.SetActive(false);
+        beatTimer.ResetBeatCounter();
     }
 
 

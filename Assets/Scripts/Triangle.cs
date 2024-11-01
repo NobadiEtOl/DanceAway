@@ -26,7 +26,7 @@ public class Triangle : MonoBehaviour
     private Rigidbody2D rb;
     [HideInInspector]public bool isChasingPlayer = false;
     [HideInInspector]public static Dictionary<GameObject, Triangle> cachedTriangles = new Dictionary<GameObject, Triangle>();
-    private int speedMult = 5;
+    private int speedMult = 3;
     public void  Initialize(Vector2Int initialPosition, GameController controller, BeatTimer timer)
     {
         // Giving initial parameters
@@ -250,7 +250,7 @@ public class Triangle : MonoBehaviour
                 spriteRenderer.color = Color.white;
                 break;
             case 4:
-                spriteRenderer.color = Color.red;
+                spriteRenderer.color = Color.yellow;
                 break;
             case 8:
                 spriteRenderer.color = Color.green;
@@ -259,7 +259,7 @@ public class Triangle : MonoBehaviour
                 spriteRenderer.color = Color.blue;
                 break;
             case 32:
-                spriteRenderer.color = Color.yellow;
+                spriteRenderer.color = Color.red;
                 break;
             case 64:
                 spriteRenderer.color = Color.gray;

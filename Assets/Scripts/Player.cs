@@ -32,9 +32,11 @@ public class Player : MonoBehaviour
     private Vector2Int currentDirection;
     //[SerializeField]private List<int> gridBounds = new List<int>();// width lower(0)/upper(1), height lower(2)/upper(3)
     [SerializeField]private List<int> gridBoundsPlayer = new List<int>();// width lower(0)/upper(1), height lower(2)/upper(3)
+    public float rotationSpeed = 5f; // Adjust speed as needed
+    private Quaternion targetRotation;
     void Start()
     {
-
+        targetRotation = transform.rotation;
     }
     public void StartPlayer()
     {
@@ -46,7 +48,7 @@ public class Player : MonoBehaviour
         gridBoundsPlayer = gameController.ReturnGridbounds();
         //Nasıl deep coy olmadan kopşyalıyıcam
         // Starting position at the bottom-middle tile
-        position = new Vector2Int((gameController.width-1)/2,((gameController.height-1)/2)-1);
+        position = new Vector2Int((gameController.width-1)/2,(gameController.height-1)/2);
         transform.position = new Vector2(position.x * tileSize, position.y * tileSize);
         // Starting animation
         animator = GetComponent<Animator>();
@@ -68,15 +70,16 @@ public class Player : MonoBehaviour
 
     void FixedUpdate()
     {
-
+        transform.rotation = Quaternion.Lerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
     }
 
     private int moveCount=0;  
     private int mult;
+    private int canHit;
     public void Move(Vector2Int direction,bool pushed=false)
     {
         Vector2Int newPosition;
-        State = beatTimer.State;
+        State = beatTimer.state;
         currentDirection = direction;// To use later if the player walks into a triangle.
         crowdPushFlag = pushed;
 
@@ -141,7 +144,8 @@ public class Player : MonoBehaviour
             }
             
             //Only one triangle with the highest powerLevel gets hit.
-            HitWeakestTriangle(scoreIncrement*mult);
+            canHit = scoreIncrement*mult*(gameController.canStart ? 1 : 0);
+            HitWeakestTriangle(canHit);
 
             // Giving negative score without the spotlight multiplier
             if(validMove)score += scoreIncrement*mult;
@@ -154,6 +158,18 @@ public class Player : MonoBehaviour
             scoreIncTextAnimator.Play("ScoreIncText",-1,0f);
             gameController.avarage+= scoreIncrement;
             multText.text = "x" + mult.ToString();
+        }
+        
+        //correction method so that the player does not get stuck outside of the current grid.
+        else if(position.x < gridBoundsPlayer[0] || position.x >= gridBoundsPlayer[1] || position.y < gridBoundsPlayer[2] || position.y >= gridBoundsPlayer[3])
+        {
+            var currentDistance = Vector2.Distance(position,new Vector2(4,4));
+            var newDistance = Vector2.Distance(newPosition,new Vector2(4,4));
+
+            if(newDistance <= currentDistance)
+            {
+                Move(direction,true);
+            }
         }
 
         else
@@ -304,22 +320,22 @@ public class Player : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.UpArrow))
         {
-            transform.eulerAngles = new Vector3(0,0,0);
+            targetRotation = Quaternion.Euler(0, 0, 0);
             Move(Vector2Int.up);
         }
         else if (Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.DownArrow))
         {
-            transform.eulerAngles = new Vector3(0,0,180);
+            targetRotation = Quaternion.Euler(0, 0, 180);
             Move(Vector2Int.down);
         }
         else if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))
         {
-            transform.eulerAngles = new Vector3(0,0,90);
+            targetRotation = Quaternion.Euler(0, 0, 90);
             Move(Vector2Int.left);
         }
         else if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))
         {
-            transform.eulerAngles = new Vector3(0,0,270);
+            targetRotation = Quaternion.Euler(0, 0, 270);
             Move(Vector2Int.right);
         }
     }
@@ -362,5 +378,11 @@ public class Player : MonoBehaviour
                 Move(Vector2Int.down,true);
             }
         }
+    }
+
+    public void PlaceScore()
+    {
+        scoreText.gameObject.transform.localPosition = new Vector2(0, -290);
+        scoreText.text = "0";
     }
 }
