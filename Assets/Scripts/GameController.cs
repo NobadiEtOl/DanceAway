@@ -70,6 +70,7 @@ public class GameController : MonoBehaviour
         player.PlaceScore();
         healthBar.SetActive(true);
         startScreen.SetActive(false);
+        beatTimer.begin=true;
     }
     void Start()
     {
@@ -113,6 +114,8 @@ public class GameController : MonoBehaviour
         crowdController.GetCrowdParents();
 
         crowdController.ResizeCrowd();
+
+        PlayBack();
 
         StartGame();
     }
@@ -254,13 +257,10 @@ public class GameController : MonoBehaviour
     public void PlayBack()
     {
         audioSources[0].Play();
-    }
-
-    public void PlayBackground()
-    {
-        beatTimer.backgroundAudio=audioSources[6];
-        audioSources[6].volume=0.05f;
-        audioSources[6].Play();
+        if(!audioSources[0].isPlaying)
+        {
+            player.TakeDamage(50);
+        }
     }
 
     public void LessNodders(int no)

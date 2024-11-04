@@ -10,7 +10,6 @@ public class TutorialController : MonoBehaviour
     [SerializeField]private GameObject thirdPage;
     [SerializeField]private GameObject fourthPage;
     [SerializeField]private GameObject startButton;
-    [SerializeField]private GameObject beatInd;
     [SerializeField]private GameObject tutorialButon;
     [SerializeField]private GameObject score;
     // Start is called before the first frame update
@@ -35,7 +34,6 @@ public class TutorialController : MonoBehaviour
         fourthPage.SetActive(false);
         tutorialButon.SetActive(false);
         score.SetActive(false);
-        beatInd.transform.localPosition = new Vector2(0, -100);
     }
 
     public void OpenSecond()
@@ -43,7 +41,6 @@ public class TutorialController : MonoBehaviour
         secondPage.SetActive(true);
         firstPage.SetActive(false);
         score.SetActive(true);
-        beatInd.transform.localPosition=new Vector2(0, 380);
     }
 
     public void OpenThird()
@@ -64,6 +61,5 @@ public class TutorialController : MonoBehaviour
         tutorialScreen.SetActive(false);
         tutorialButon.SetActive(true);
         score.SetActive(false);
-        beatInd.transform.localPosition=new Vector2(0, 380);
     }
 }

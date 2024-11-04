@@ -148,7 +148,7 @@ public class SpotlightSquare: MonoBehaviour
                 color = Color.white;
                 break;
             case 4:
-                color = Color.red;
+                color = Color.yellow;
                 break;
             case 8:
                 color = Color.green;
@@ -157,7 +157,7 @@ public class SpotlightSquare: MonoBehaviour
                 color = Color.blue;
                 break;
             case 32:
-                color = Color.yellow;
+                color = Color.red;
                 break;
             case 64:
                 color = Color.gray;

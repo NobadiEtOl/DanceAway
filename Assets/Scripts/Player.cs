@@ -382,7 +382,7 @@ public class Player : MonoBehaviour
 
     public void PlaceScore()
     {
-        scoreText.gameObject.transform.localPosition = new Vector2(0, -290);
+        scoreText.gameObject.transform.localPosition = new Vector2(0, -360);
         scoreText.text = "0";
     }
 }

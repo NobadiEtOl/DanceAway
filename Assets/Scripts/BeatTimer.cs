@@ -13,6 +13,7 @@ public class BeatTimer : MonoBehaviour
     [SerializeField]private Image beatIndicator;
     [SerializeField]private Transform beatIndicatorCurrent;
     [SerializeField]public float audioDelay;
+    [SerializeField]private Text dpsText;
     private GameController gameController;
     public event Action OnBeat;
     private SpriteRenderer backGround;
@@ -20,7 +21,7 @@ public class BeatTimer : MonoBehaviour
     private float tolerance;
     private float beatTolerance;
     public BeatState state { get; set; }
-    public bool play;
+    public bool play = false;
     public int beatCounter;
     private int beatCheckCounter = 0;
     public AudioSource backgroundAudio;
@@ -28,24 +29,25 @@ public class BeatTimer : MonoBehaviour
 
     void Awake()
     {
-        backGround = GameObject.Find("BackGround").GetComponent<SpriteRenderer>();
-        gameController = GetComponent<GameController>();
-        tolerance = beatInterval / 20;
-        beatTolerance = beatInterval / 15;
-        audioDelay = beatInterval*0.9f;
+
     }
 
     private float beatIndicatorSpeed;
     private Vector3 beatIndLeftPos;
     void Start()
     {
-        gameController.PlayBackground();
+        backGround = GameObject.Find("BackGround").GetComponent<SpriteRenderer>();
+        gameController = GetComponent<GameController>();
+        tolerance = beatInterval / 20;
+        beatTolerance = beatInterval / 15;
+        audioDelay = beatInterval*0.9f;
         beatIndicatorSpeed = beatIndicator.rectTransform.rect.width/(beatInterval/2);
         RectTransform rectTransform = beatIndicator.GetComponent<RectTransform>();
         beatIndLeftPos = rectTransform.position - new Vector3(rectTransform.rect.width * rectTransform.lossyScale.x / 2, 0, 0);
         StartAfterDelay();
     }
 
+    public bool begin= false;
     public void StartAfterDelay()
     {
         beatCounter = -1;
@@ -54,21 +56,27 @@ public class BeatTimer : MonoBehaviour
         state = BeatState.OffBeat;
     }
 
+
     void FixedUpdate()
     {
-        timer = (double)AudioSettings.dspTime + tolerance*4; // Use dspTime for accurate timing
-        if (timeS != 1) Time.timeScale = 1 * timeS;
-        CheckAction();
-        if(backText)backText.text = backSlider.value.ToString();
-        float beatIndTimer = (float)timer % beatInterval;
-        if(beatIndTimer < beatInterval/2)
+        if (begin)
         {
-            beatIndicatorCurrent.position = new Vector3(200+beatIndLeftPos.x-beatIndicatorSpeed*beatIndTimer,beatIndicatorCurrent.position.y,5);
+            timer = (double)AudioSettings.dspTime + tolerance*4; // Use dspTime for accurate timing
+            if (timeS != 1) Time.timeScale = 1 * timeS;
+            CheckAction();
+            if(backText)backText.text = backSlider.value.ToString();
+            float beatIndTimer = (float)timer % beatInterval;
+            if(beatIndTimer < beatInterval/2)
+            {
+                beatIndicatorCurrent.position = new Vector3(200+beatIndLeftPos.x-beatIndicatorSpeed*beatIndTimer,beatIndicatorCurrent.position.y,5);
+            }
+            else if(beatIndTimer >= beatInterval/2)
+            {
+                beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x+beatIndicatorSpeed*(beatIndTimer%(beatInterval/2)),beatIndicatorCurrent.position.y,5);      
+            }
         }
-        else if(beatIndTimer >= beatInterval/2)
-        {
-            beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x+beatIndicatorSpeed*(beatIndTimer%(beatInterval/2)),beatIndicatorCurrent.position.y,5);      
-        }
+
+        dpsText.text = timer.ToString();
     }
 
     private bool beatFlag = true;
