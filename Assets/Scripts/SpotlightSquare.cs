@@ -168,7 +168,7 @@ public class SpotlightSquare: MonoBehaviour
         }
 
         // Set parent sprite's color
-        color.a = 0.5f;
+        color.a = 0.75f;
         spriteRenderer.color = color;
 
         color.a = 0.25f; // Set alpha transparency for child

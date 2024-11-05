@@ -9,9 +9,8 @@ public class TutorialController : MonoBehaviour
     [SerializeField]private GameObject secondPage;
     [SerializeField]private GameObject thirdPage;
     [SerializeField]private GameObject fourthPage;
-    [SerializeField]private GameObject startButton;
-    [SerializeField]private GameObject tutorialButon;
     [SerializeField]private GameObject score;
+    [SerializeField]private GameObject startScreen;
     // Start is called before the first frame update
     void Start()
     {
@@ -26,14 +25,24 @@ public class TutorialController : MonoBehaviour
 
     public void OpenFirst()
     {
-        startButton.SetActive(false);
+        print("openfirst");
+        CloseStartScreen();
         tutorialScreen.SetActive(true);
         firstPage.SetActive(true);
         secondPage.SetActive(false);
         thirdPage.SetActive(false);
         fourthPage.SetActive(false);
-        tutorialButon.SetActive(false);
         score.SetActive(false);
+        print("openfirstend");
+    }
+
+    private void CloseStartScreen()
+    {
+        if(startScreen == null)
+        {
+            Debug.LogError("noluyo");
+        }
+        else startScreen.SetActive(false);
     }
 
     public void OpenSecond()
@@ -57,9 +66,8 @@ public class TutorialController : MonoBehaviour
 
     public void CloseTutorial()
     {
-        startButton.SetActive(true);
+        startScreen.SetActive(true);
         tutorialScreen.SetActive(false);
-        tutorialButon.SetActive(true);
         score.SetActive(false);
     }
 }

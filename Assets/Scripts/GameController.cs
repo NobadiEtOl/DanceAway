@@ -70,6 +70,11 @@ public class GameController : MonoBehaviour
         player.PlaceScore();
         healthBar.SetActive(true);
         startScreen.SetActive(false);
+        if(!beatTimer.begin)beatTimer.begin=true;
+    }
+
+    public void BeatTimerBegin()
+    {
         beatTimer.begin=true;
     }
     void Start()
@@ -283,14 +288,28 @@ public class GameController : MonoBehaviour
             }
         }
     }
-
+    
     private Color GetRandomColor()
     {
-        float r = UnityEngine.Random.Range(0f, 1f);
-        float g = UnityEngine.Random.Range(0f, 1f);
-        float b = UnityEngine.Random.Range(0f, 1f);
-        return new Color(r, g, b);
+        // Define a list of predetermined colors
+        Color[] colors = new Color[]
+        {
+            Color.HSVToRGB(0f, 0.65f, 1f),         // Red
+            Color.HSVToRGB(0.67f, 0.65f, 1f),      // Blue
+            Color.HSVToRGB(0.33f, 0.65f, 1f),      // Green
+            Color.HSVToRGB(0.17f, 0.65f, 1f),      // Yellow
+            Color.HSVToRGB(0.5f, 0.65f, 1f),       // Cyan
+            Color.HSVToRGB(0.83f, 0.65f, 1f),      // Magenta
+            Color.HSVToRGB(0.08f, 0.65f, 1f),      // Orange
+            Color.HSVToRGB(0.75f, 0.65f, 1f)       // Purple
+        };
+
+        // Choose a random index from the color array
+        int randomIndex = UnityEngine.Random.Range(0, colors.Length);
+
+        return colors[randomIndex];
     }
+
 
     void HandleMerging()// Maybe change it so that it works with colliders instead?????????
     {

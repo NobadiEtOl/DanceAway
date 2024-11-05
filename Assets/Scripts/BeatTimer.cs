@@ -13,7 +13,7 @@ public class BeatTimer : MonoBehaviour
     [SerializeField]private Image beatIndicator;
     [SerializeField]private Transform beatIndicatorCurrent;
     [SerializeField]public float audioDelay;
-    [SerializeField]private Text dpsText;
+    //[SerializeField]private Text dpsText;
     private GameController gameController;
     public event Action OnBeat;
     private SpriteRenderer backGround;
@@ -24,7 +24,6 @@ public class BeatTimer : MonoBehaviour
     public bool play = false;
     public int beatCounter;
     private int beatCheckCounter = 0;
-    public AudioSource backgroundAudio;
     [SerializeField]private SnapController snapController;
 
     void Awake()
@@ -76,7 +75,7 @@ public class BeatTimer : MonoBehaviour
             }
         }
 
-        dpsText.text = timer.ToString();
+        //dpsText.text = timer.ToString();
     }
 
     private bool beatFlag = true;

@@ -8,6 +8,7 @@ public class BeginController : MonoBehaviour
 {
     private AudioClip[] gameAudioClips;
     public string[] audioNames = { "01", "2", "3", "4", "5", "6" }; // Replace with your audio file names
+    [SerializeField]private GameController gameController;
     [SerializeField]private GameObject clickToBegin;
     [SerializeField]private float loadTime=15;
     private float beginTimer;
@@ -21,6 +22,7 @@ public class BeginController : MonoBehaviour
     void Start()
     {
         StartCoroutine(PreloadAudio());
+        gameController = GameObject.Find("GameController").GetComponent<GameController>();
         beginTimer=0;
         isClicked=false;
         danceAway.SetActive(false);
@@ -78,5 +80,7 @@ public class BeginController : MonoBehaviour
         startButton.SetActive(true);
         tutorialButton.SetActive(true);
         loadSlider.gameObject.SetActive(false);
+        gameController.BeatTimerBegin();
+        
     } 
 }
