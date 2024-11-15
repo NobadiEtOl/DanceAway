@@ -42,11 +42,11 @@ public class LevelManager : MonoBehaviour
         gc.canSpawn=false;
         OpenLevelText();
         StopMusic();
-        yield return new WaitForSeconds(levelLoad5Wait);
+        yield return new WaitForSeconds(gc.SendBeatInterval()*2);
         ChangePitch();
         CloseLevelText();
         StartMusic();
-        yield return new WaitForSeconds(levelLoad5Wait/2);
+        yield return new WaitForSeconds(gc.SendBeatInterval());
         gc.canSpawn=true;
     }
 

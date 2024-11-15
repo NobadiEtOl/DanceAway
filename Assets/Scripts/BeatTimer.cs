@@ -16,6 +16,7 @@ public class BeatTimer : MonoBehaviour
     //[SerializeField]private Text dpsText;
     private GameController gameController;
     public event Action OnBeat;
+    public event Action OffBeat;
     private SpriteRenderer backGround;
     private double timer;
     private float tolerance;
@@ -152,6 +153,7 @@ public class BeatTimer : MonoBehaviour
         {
             backGround.color = Color.black;
             backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
+            if(state == BeatState.FarBeat) OffBeat?.Invoke();
             state = BeatState.OffBeat;
             if (!beatFlag) beatFlag = true;
         }

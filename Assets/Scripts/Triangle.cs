@@ -302,7 +302,8 @@ public class Triangle : MonoBehaviour
         {
             Vector2Int.down,
             Vector2Int.down,
-            Vector2Int.down,
+            Vector2Int.zero,
+            Vector2Int.zero,
             Vector2Int.left,
             Vector2Int.right
         };
@@ -358,6 +359,15 @@ public class Triangle : MonoBehaviour
         }
         Vector3 directionVector = new Vector3(direction.x, direction.y, 0);
         transform.up = directionVector;
+    }
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        if(other.CompareTag("Triangle"))
+        {
+            List<Triangle> triangleMergeList=new List<Triangle>{this,other.gameObject.GetComponent<Triangle>()};
+            gameController.MergeTriangles(triangleMergeList);
+        }
     }
 
 }

@@ -48,7 +48,7 @@ public class EnemySpawner : MonoBehaviour
             Vector2Int spawnPosition = GetOutsideSpawnPosition(occupiedPositions);
             if (spawnPosition != Vector2Int.zero)
             {
-                GameObject triangleObject = Instantiate(trianglePrefab, new Vector2(spawnPosition.x * gc.tileSize, spawnPosition.y * gc.tileSize), Quaternion.identity);
+                GameObject triangleObject = Instantiate(trianglePrefab, new Vector2(spawnPosition.x * gc.tileSize, spawnPosition.y * gc.tileSize), GetRoToC(spawnPosition));
                 Triangle triangle = triangleObject.GetComponent<Triangle>();
                 triangle.Initialize(spawnPosition, gc, beatTimer);  // Use the Initialize method
                 gc.enemies.Add(triangle);
@@ -62,6 +62,23 @@ public class EnemySpawner : MonoBehaviour
             }
         }
         gc.gridBoundsFlag = true;
+    }
+
+    public Quaternion GetRoToC(Vector2 initial)
+    {
+        if(initial.y >= gridBounds[3])
+        {
+            return Quaternion.Euler(0,0,180);
+        }
+        else if(initial.x < 4)
+        {
+            return Quaternion.Euler(0,0,270);
+        }
+        else if(initial.x > 4)
+        {
+            return Quaternion.Euler(0,0,90);
+        }
+        else return Quaternion.Euler(0,0,0);
     }
 
     Vector2Int GetOutsideSpawnPosition(HashSet<Vector2Int> occupiedPositions)

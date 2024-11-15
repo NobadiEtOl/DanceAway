@@ -7,7 +7,7 @@ Shader "Custom/RadialGradientShader"
     }
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        Tags { "Queue"="Overlay" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
         LOD 100
 
@@ -45,11 +45,14 @@ Shader "Custom/RadialGradientShader"
             {
                 // Calculate distance from the center (0, 0)
                 float dist = length(i.uv);
+
+                // Create gradient with reversed opacity
+                float alpha = smoothstep(_Radius, 0, dist);
                 
-                // Set opacity based on distance from the center
-                float alpha = smoothstep(_Radius, 0, 1 - dist);
-                
-                return fixed4(_Color.rgb, alpha * _Color.a);
+                // Overlay color effect
+                fixed3 overlayColor = lerp(_Color.rgb, _Color.rgb + (1.0 - _Color.rgb) * alpha, alpha);
+
+                return fixed4(overlayColor, alpha);
             }
             ENDCG
         }

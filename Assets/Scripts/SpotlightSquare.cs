@@ -168,10 +168,11 @@ public class SpotlightSquare: MonoBehaviour
         }
 
         // Set parent sprite's color
-        color.a = 0.75f;
+        color.a = 0.5f;
         spriteRenderer.color = color;
 
-        color.a = 0.25f; // Set alpha transparency for child
+        color = Color.white;
+        color.a = 0.05f; // Set alpha transparency for child
 
         childSpriteRenderer.color = color;
     }
@@ -225,5 +226,14 @@ public class SpotlightSquare: MonoBehaviour
     {
         Vector3 directionVector = new Vector3(direction.x, direction.y, 0);
         transform.up = directionVector;
+    }
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        if(other.CompareTag("Spotlight"))
+        {
+             List<SpotlightSquare> spotlightMergeList=new List<SpotlightSquare>{this,other.gameObject.GetComponent<SpotlightSquare>()};
+            gameController.MergeSpotlights(spotlightMergeList);
+        }
     }
 }

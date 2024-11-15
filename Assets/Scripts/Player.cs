@@ -14,6 +14,7 @@ public class Player : MonoBehaviour
     [SerializeField]private Text beatStateText;
     [SerializeField]private Text multText;
     [SerializeField]private Text scoreIncText;
+    [SerializeField]private Text comboText;
     [SerializeField]private Slider healthSlider;
     public int score;
     private int maxHealth=50;
@@ -22,8 +23,10 @@ public class Player : MonoBehaviour
     private GameController gameController; // Reference to GameController
     private BeatTimer beatTimer;
     private Animator animator;
+    private Dictionary<string, float> animationLengths;
     private Animator beatStateAnimator;
     private Animator multTextAnimator;
+    private Animator comboTextAnimator;
     private Animator scoreIncTextAnimator;
     private Rigidbody2D rb;
     public BeatState State { get; set; }
@@ -55,6 +58,7 @@ public class Player : MonoBehaviour
         beatStateAnimator = beatStateText.GetComponent<Animator>();
         multTextAnimator = multText.GetComponent<Animator>();
         scoreIncTextAnimator = scoreIncText.GetComponent<Animator>();
+        comboTextAnimator = comboText.GetComponent<Animator>();
         animator.Play("idle");
 
         beatStateText.text = "";
@@ -66,6 +70,10 @@ public class Player : MonoBehaviour
         healthSlider.maxValue = maxHealth;
         healthSlider.value = maxHealth;
 
+        GetAnimationLenghts();
+
+        beatTimer.OffBeat += ResetMove;
+
     }
 
     void FixedUpdate()
@@ -76,6 +84,7 @@ public class Player : MonoBehaviour
     private int moveCount=0;  
     private int mult;
     private int canHit;
+    private int moveCombo=0;
     public void Move(Vector2Int direction,bool pushed=false)
     {
         Vector2Int newPosition;
@@ -85,7 +94,7 @@ public class Player : MonoBehaviour
 
         bool validMove=true;
 
-        if (State == BeatState.OffBeat)
+        if (State == BeatState.OffBeat || moveCount > 2)
         {
             validMove=false; // Ignore movement if in OffBeat
         }
@@ -101,6 +110,7 @@ public class Player : MonoBehaviour
             CheckForSpotlightCollision();// Find out how much mult is.
             
             moveCount++;// Only count moves if there are enemies.
+            moveCombo++;
             if (State == BeatState.PerfectBeat)
             {
                 scoreIncrement = 200; // Perfect score threshold
@@ -127,6 +137,7 @@ public class Player : MonoBehaviour
                 scoreIncrement=0;// Make a large score deduction.
                 beatStateText.text = "F";
                 StartCoroutine(WrongMove(direction));
+                moveCombo=0;
             }
             else
             {
@@ -148,7 +159,7 @@ public class Player : MonoBehaviour
             HitWeakestTriangle(canHit);
 
             // Giving negative score without the spotlight multiplier
-            if(validMove)score += scoreIncrement*mult;
+            if(validMove)score += (scoreIncrement+ moveCombo)*mult;
             scoreIncText.text = "+" + (scoreIncrement*mult).ToString();
 
             // Updating score and avarage
@@ -156,8 +167,11 @@ public class Player : MonoBehaviour
             beatStateAnimator.Play("BeatStateText",-1,0f);
             multTextAnimator.Play("MultText",-1,0f);
             scoreIncTextAnimator.Play("ScoreIncText",-1,0f);
+            comboTextAnimator.Play("ComboText",-1,0f);
             gameController.avarage+= scoreIncrement;
             multText.text = "x" + mult.ToString();
+            if(moveCombo!=0)comboText.text = "x" + moveCombo.ToString();
+            else comboText.text = "";
         }
         
         //correction method so that the player does not get stuck outside of the current grid.
@@ -180,11 +194,16 @@ public class Player : MonoBehaviour
         StartCoroutine(ResetAnimation("Player_Moving"));
     }
 
+    private void ResetMove()
+    {
+        moveCount = 0;
+    }
+
 
     private void CheckForSpotlightCollision()
     {
         // Check for nearby colliders in the spotlight layer
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(transform.position, 1f, spotlightLayer);
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(transform.position, 5f, spotlightLayer);
 
         // mult start with one in each check
         mult = 1;
@@ -201,6 +220,16 @@ public class Player : MonoBehaviour
         }
     }
 
+    //for spotlight coliision debugging
+    private void OnDrawGizmosSelected()
+    {
+        // Set the color of the Gizmos
+        Gizmos.color = Color.yellow;
+        
+        // Draw a wire sphere at the player's position with the specified radius
+        Gizmos.DrawWireSphere(transform.position, 6f);
+    }
+
     private IEnumerator WrongMove(Vector2 direction)
     {
         //Making the player move back and forth for a wrong move
@@ -215,7 +244,9 @@ public class Player : MonoBehaviour
     {
         if(!takingDamage)animator.Play(animationName);
 
-        yield return new WaitForSeconds(0.2f);
+        float animationLength = animationLengths.ContainsKey(animationName) ? animationLengths[animationName] : 0.4f;
+
+        yield return new WaitForSeconds(animationLength);
 
         if(!takingDamage)animator.Play("idle");
     }
@@ -240,19 +271,21 @@ public class Player : MonoBehaviour
         }
     }
 
+    private bool hasDied=false;
     public void TakeDamage(int damage)
     {
         if(!takingDamage)
         {
             health -= damage;
-            gameController.LessNodders(20);// Decrease the number of cTriangles Nodding.
+            gameController.LessNodders(40);// Decrease the number of cTriangles Nodding.
             healthSlider.value = health;
             Move(-currentDirection);
-            if (health <= 0)
+            if (health <= 0 && !hasDied)
             {
                 // Handle player death
                 Debug.Log("Player has died");
                 gameController.OpenEndScreen();
+                hasDied=true;
             }
 
             StartCoroutine(DamageTaken());
@@ -262,12 +295,12 @@ public class Player : MonoBehaviour
     {
 
         health += heal;
-        gameController.MoreNodders(20);// Decrease the number of cTriangles Nodding.
+        gameController.MoreNodders(20);
         healthSlider.value = health;
         if (health > maxHealth)
         {
             health = maxHealth;
-            gameController.MoreNodders(20);
+            gameController.MoreNodders(50);
         }
 
         StartCoroutine(HealTaken());
@@ -342,6 +375,7 @@ public class Player : MonoBehaviour
 
     public void ChangeGridBounds()
     {
+        if(gameController == null)print("offfff");
         gridBoundsPlayer = gameController.ReturnGridbounds();
         CheckIfOutside();
     }
@@ -384,5 +418,14 @@ public class Player : MonoBehaviour
     {
         scoreText.gameObject.transform.localPosition = new Vector2(0, -360);
         scoreText.text = "0";
+    }
+
+    private void GetAnimationLenghts()
+    {
+        animationLengths = new Dictionary<string, float>();
+        foreach (AnimationClip clip in animator.runtimeAnimatorController.animationClips)
+        {
+            animationLengths[clip.name] = clip.length;
+        }
     }
 }

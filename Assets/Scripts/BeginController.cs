@@ -18,6 +18,7 @@ public class BeginController : MonoBehaviour
     [SerializeField]private GameObject startButton;
     [SerializeField]private GameObject tutorialButton;
     [SerializeField]private Image background;
+    private static bool alreadyStarted = false;
     // Start is called before the first frame update
     void Start()
     {
@@ -31,12 +32,14 @@ public class BeginController : MonoBehaviour
         loadSlider.gameObject.SetActive(false);
     }
 
-    // Update is called once per frame
+    [SerializeField]private bool readyToPlay=false;
     void Update()
     {
         beginTimer+= Time.deltaTime;
-        if(beginTimer>=loadTime && isClicked)
+        if((beginTimer>=loadTime && isClicked) || readyToPlay || alreadyStarted)
         {
+            alreadyStarted=true;
+            clickToBegin.SetActive(false);
             GameReady();
         }
         else
@@ -77,6 +80,7 @@ public class BeginController : MonoBehaviour
 
     private void GameReady()
     {
+        danceAway.SetActive(true);
         startButton.SetActive(true);
         tutorialButton.SetActive(true);
         loadSlider.gameObject.SetActive(false);

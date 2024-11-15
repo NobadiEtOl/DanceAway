@@ -9,6 +9,7 @@ TagManager:
   - Triangle
   - Tile
   - cTriangle
+  - SpotlightMerge
   layers:
   - Default
   - TransparentFX

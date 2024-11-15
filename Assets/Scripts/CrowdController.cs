@@ -147,14 +147,16 @@ public class CrowdController : MonoBehaviour
         }
     }
 
+    private bool canResize=true;
     public void ResizeCrowd()
     {
-        StartCoroutine(ChangeCrowdPos(gc.width-gridBounds[1]));
+        if(canResize)StartCoroutine(ChangeCrowdPos(gc.width-gridBounds[1]));
     }
 
     public float cameraTransitionDuration = 1f;
     private IEnumerator ChangeCrowdPos(int bound)
     {
+        canResize=false;
         float timePassed = 0.1f;
         Vector3[] initialPos = new Vector3[]
         {leftCrowd.transform.position,
@@ -178,6 +180,7 @@ public class CrowdController : MonoBehaviour
             yield return null;
         }
 
+        canResize=true;
 
     }
         

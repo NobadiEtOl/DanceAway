@@ -42,8 +42,6 @@ public class GameController : MonoBehaviour
     [SerializeField]private GameObject spotLightPrefab;
     [SerializeField]private GameObject heartPrefab;
     [SerializeField]private GameObject endScreen;
-    [SerializeField]private GameObject filter;
-    private SpriteRenderer filterSR;
     public Player player;
     [HideInInspector]public List<Triangle> enemies = new List<Triangle>();
     [HideInInspector]public List<SpotlightSquare> spotlights = new List<SpotlightSquare>();
@@ -62,6 +60,9 @@ public class GameController : MonoBehaviour
     [SerializeField]private GameObject healthBar;
     [SerializeField]private GameObject scoreObj;
     [SerializeField]private Text endScore;
+    [SerializeField]private Text endLevelText; 
+    [SerializeField] private Slider volumeSlider;
+    [SerializeField] private AudioMixer audioMixer;
     public void StartHandleBeatCor()
     {
         canStart = true;
@@ -79,7 +80,41 @@ public class GameController : MonoBehaviour
     }
     void Start()
     {
-        // Initializing the arena grid and Centering the camera
+        // Initializing the arena grid and other components
+        InitializeComponents();
+
+        //Initializng the player before the start of the game. 
+        player.StartPlayer();
+
+        //Subscribing to the OnBeat event
+        beatTimer.OnBeat += HandleBeat;
+
+        //Initializin onValueChanged for the volume slider
+        volumeSlider.onValueChanged.AddListener(AdjustVolume);
+
+        CenterCamera();
+
+        // Setting initial audio pitches
+        for(int i = 0; i < 6; i++)
+        {
+            audioSources[i].Stop();
+            audioSources[i].pitch = 0.8333f;
+        }
+
+        settingScreen.SetActive(false);
+        endScreen.SetActive(false);        
+
+        gridController.ResetGridBounds();
+
+        crowdController.GetCrowdParents();
+
+        crowdController.ResizeCrowd();
+
+        StartGame();
+    }
+
+    private void InitializeComponents()
+    {
         grid = new GameObject[width, height];
         beatTimer = GetComponent<BeatTimer>();
         audioSources = GetComponents<AudioSource>();
@@ -90,47 +125,13 @@ public class GameController : MonoBehaviour
         gridController = GetComponent<GridController>();
         gridController.Initialize();
         crowdController.Initialize(beatTimer,width,height,tileSize);
-        //swipeController = GameObject.Find("SwipeController").GetComponent<SwipeController>();
-
-        settingScreen.SetActive(false);
-
-        CenterCamera();
-
         gridController.InitializeGrid();
-
-        // Setting initial audio pitches
-        for(int i = 0; i < 6; i++)
-        {
-            audioSources[i].Stop();
-            audioSources[i].pitch = 0.8333f;
-        }
-
-        filterSR = filter.GetComponent<SpriteRenderer>();
-        colorChange = UnityEngine.Random.Range(0, 360);
-        endScreen.SetActive(false);
-        
-
-        beatTimer.OnBeat += HandleBeat;
-
-        player.StartPlayer();
-
-        gridController.ResetGridBounds();
-
-        crowdController.GetCrowdParents();
-
-        crowdController.ResizeCrowd();
-
-        PlayBack();
-
-        StartGame();
     }
     public bool canSpawn = true;
     void HandleBeat()// Handles all the checks happening once per beat
     {
 
         beatCounter++;
-        print("gameController");
-        print("gameController: " + beatCounter);
 
         if(canStart)StartCoroutine(HandleBeatCoroutine());
         
@@ -139,9 +140,9 @@ public class GameController : MonoBehaviour
             if(beatCounter%2==0)spotlight.Move();// Spotlights move once per 2 beats since their speed is halved
         }
 
-        if (isSpawningEnemies)
+        if (isSpawningEnemies && canSpawn)
         {
-            if(canSpawn)enemySpawner.SpawnRemainingEnemies();
+            enemySpawner.SpawnRemainingEnemies();
         }
 
         if(enemies.Count == 0 && !isSpawningEnemies)
@@ -150,9 +151,7 @@ public class GameController : MonoBehaviour
             gridController.ResetGridBounds();
             crowdController.ResizeCrowd();
         }
-
-        HandleMerging();
-        HandleSpotlightMerging();
+        //Switches the colors of the tiles each beat
         SwitchColor();
     }
 
@@ -169,20 +168,8 @@ public class GameController : MonoBehaviour
             if (enemy != null)
             {
                 enemy.Move(); // Make enemies move with the beat
-
-                // Check if this enemy should be removed (health check or any other condition)
-                if (enemy.health <= 0)
-                {
-                    trianglesToRemove.Add(enemy);
-                }
             }
             yield return null;
-        }
-
-        // Now safely remove the destroyed triangles
-        foreach (var enemy in trianglesToRemove)
-        {
-            RemoveEnemy(enemy); // Your existing method to remove enemies
         }
 
         // After all enemies have moved, handle grid bounds change if needed
@@ -219,41 +206,42 @@ public class GameController : MonoBehaviour
     public void PlayHand()
     {   
         avarage=avarage/16;
+    
         // Plays different hands(beats) according to both the avarage of the player and the current level no.
-        if(avarage<100)
+        if(avarage<75)
         {
             audioSources[1].Stop();
         }
-        if(avarage<150)
+        if(avarage<130)
         {
             audioSources[2].Stop();
         }
-        if(avarage>=100)
+        if(avarage>=75)
         {
             audioSources[1].volume = 0.3f;
             audioSources[1].Play();
             crowdController.MoreNodders(20);
         }
-        if(avarage>=150)
+        if(avarage>=130)
         {
-            audioSources[2].volume = 0.3f;
+            audioSources[2].volume = 0.5f;
             audioSources[2].Play();
             crowdController.MoreNodders(50);
         }
         
         if(levelNo>=30)
         {
-            audioSources[5].volume = 0.3f;
+            audioSources[5].volume = 0.5f;
             audioSources[5].Play();
         }
         else if(levelNo>=20)
         {
-            audioSources[4].volume = 0.3f;
+            audioSources[4].volume = 0.4f;
             audioSources[4].Play();
         }
         else if(levelNo>=10)
         {
-            audioSources[3].volume = 0.3f;
+            audioSources[3].volume = 0.5f;
             audioSources[3].Play();
         } 
         avarage=0;
@@ -261,6 +249,7 @@ public class GameController : MonoBehaviour
 
     public void PlayBack()
     {
+        audioSources[0].volume = 0.6f;   
         audioSources[0].Play();
         if(!audioSources[0].isPlaying)
         {
@@ -310,139 +299,48 @@ public class GameController : MonoBehaviour
         return colors[randomIndex];
     }
 
-
-    void HandleMerging()// Maybe change it so that it works with colliders instead?????????
-    {
-        var mergeGroups = new Dictionary<Vector2Int, List<Triangle>>();
-
-        // Group triangles by their current and previous positions
-        foreach (var enemy in enemies)
-        {
-            if (!mergeGroups.ContainsKey(enemy.position))
-            {
-                mergeGroups[enemy.position] = new List<Triangle>();
-            }
-            mergeGroups[enemy.position].Add(enemy);
-
-            if (enemy.previousPosition != enemy.position) // If the triangle moved, consider its previous position too
-            {
-                if (!mergeGroups.ContainsKey(enemy.previousPosition))
-                {
-                    mergeGroups[enemy.previousPosition] = new List<Triangle>();
-                }
-                mergeGroups[enemy.previousPosition].Add(enemy);
-            }
-        }
-
-        // Merge triangles that have crossed paths or are on the same tile with the same power level and move count greater than 0
-        foreach (var group in mergeGroups.Values)
-        {
-            if (group.Count > 1)
-            {
-                var mergeCandidates = new List<Triangle>();
-                int powerLevel = group[0].powerLevel;
-
-                foreach (var triangle in group)
-                {
-                    if (triangle.powerLevel == powerLevel && triangle.moveCount > 0)
-                    {
-                        mergeCandidates.Add(triangle);
-                    }
-                }
-
-                if (mergeCandidates.Count > 1)
-                {
-                    MergeTriangles(mergeCandidates);
-                }
-            }
-        }
-    }
-
-
-    void HandleSpotlightMerging()// Maybe change it so that it works with colliders instead?????????
-    {
-        var mergeGroups = new Dictionary<Vector2Int, List<SpotlightSquare>>();
-
-        // Group spotlights by their current and previous positions
-        foreach (var spotlight in spotlights)
-        {
-            if (!mergeGroups.ContainsKey(spotlight.position))
-            {
-                mergeGroups[spotlight.position] = new List<SpotlightSquare>();
-            }
-            mergeGroups[spotlight.position].Add(spotlight);
-
-            if (spotlight.previousPosition != spotlight.position) // If the spotlight moved, consider its previous position too
-            {
-                if (!mergeGroups.ContainsKey(spotlight.previousPosition))
-                {
-                    mergeGroups[spotlight.previousPosition] = new List<SpotlightSquare>();
-                }
-                mergeGroups[spotlight.previousPosition].Add(spotlight);
-            }
-        }
-
-        // Merge spotlights that have crossed paths or are on the same tile with the same power level and move count greater than 0
-        foreach (var group in mergeGroups.Values)
-        {
-            if (group.Count > 1)
-            {
-                var mergeCandidates = new List<SpotlightSquare>();
-                int powerLevel = group[0].powerLevel;
-
-                foreach (var spotlight in group)
-                {
-                    if (spotlight.powerLevel == powerLevel && spotlight.moveCount > 0)
-                    {
-                        mergeCandidates.Add(spotlight);
-                    }
-                }
-
-                if (mergeCandidates.Count > 1)
-                {
-                    MergeSpotlights(mergeCandidates);
-                }
-            }
-        }
-    }
-
-
     public void MergeTriangles(List<Triangle> mergeCandidates)
     {
-        int numberOfTriangles = mergeCandidates.Count;
-        Triangle baseTriangle = mergeCandidates[0];
-
-        int healthSum=0;//how much health triangle lost
-        foreach (var triangle in mergeCandidates)
+        if(mergeCandidates[0].powerLevel == mergeCandidates[1].powerLevel)
         {
-            healthSum+=(triangle.baseHealth*triangle.powerLevel)-triangle.health;
-            if (triangle != baseTriangle)
-            {
-                RemoveEnemy(triangle);
-                UpdateChasingTriangle();
-                //var temp = triangle.powerLevel;// does not work correctly if this comment is not here
-                Destroy(triangle.gameObject);
-            }
-        }
+            int numberOfTriangles = mergeCandidates.Count;
+            Triangle baseTriangle = mergeCandidates[0];
 
-        baseTriangle.MergeTriangles(numberOfTriangles,healthSum);
+            int healthSum=0;//how much health triangle lost
+            foreach (var triangle in mergeCandidates)
+            {
+                healthSum+=(triangle.baseHealth*triangle.powerLevel)-triangle.health;
+                if (triangle != baseTriangle)
+                {
+                    RemoveEnemy(triangle);
+                    UpdateChasingTriangle();
+                    //var temp = triangle.powerLevel;// does not work correctly if this comment is not here
+                    Destroy(triangle.gameObject);
+                }
+            }
+
+            baseTriangle.MergeTriangles(numberOfTriangles,healthSum);
+        }
     }
 
     public void MergeSpotlights(List<SpotlightSquare> mergeCandidates)
     {
-        int numberOfSpotlights = mergeCandidates.Count;
-        SpotlightSquare baseSpotlight = mergeCandidates[0];
-
-        foreach (var spotlight in mergeCandidates)
+        if(mergeCandidates[0].powerLevel == mergeCandidates[1].powerLevel)
         {
-            if (spotlight != baseSpotlight)
-            {
-                RemoveSpotlight(spotlight);
-                Destroy(spotlight.gameObject);
-            }
-        }
+            int numberOfSpotlights = mergeCandidates.Count;
+            SpotlightSquare baseSpotlight = mergeCandidates[0];
 
-        baseSpotlight.MergeSpotlights(numberOfSpotlights);
+            foreach (var spotlight in mergeCandidates)
+            {
+                if (spotlight != baseSpotlight)
+                {
+                    RemoveSpotlight(spotlight);
+                    Destroy(spotlight.gameObject);
+                }
+            }
+
+            baseSpotlight.MergeSpotlights(numberOfSpotlights);
+        }
     }
 
     private float screenAspect;
@@ -537,19 +435,8 @@ public class GameController : MonoBehaviour
         if (currentState == GameState.Play)
         {
             player.HandleInput();
-            //FilterColor();
         }
 
-    }
-
-    private float colorChange;
-    private void FilterColor()
-    {
-        colorChange += Time.deltaTime;
-        float val = (colorChange%360)/360;
-        Color color = Color.HSVToRGB(val,0.75f,1); 
-        color.a = 0.8f;
-        filterSR.color = color;
     }
 
     private void SpawnSpotlight_Heart(Vector2Int position, int powerLevel)
@@ -617,6 +504,7 @@ public class GameController : MonoBehaviour
     public void OpenEndScreen()
     {
         endScore.text = player.score.ToString();
+        endLevelText.text = "Level " + levelNo.ToString();
         endScreen.SetActive(true);
     }
 
@@ -638,8 +526,19 @@ public class GameController : MonoBehaviour
     public void CloseSettingScreen()
     {
         settingScreen.SetActive(false);
-        beatTimer.ResetBeatCounter();
     }
+    private void AdjustVolume(float volume)
+    {
+        // Convert linear 0-1 slider value to decibel scale (-80 to 0 dB)
+        float volumeDb = Mathf.Log10(Mathf.Clamp(volume, 0.0001f, 1)) * 20;
+        audioMixer.SetFloat("Volume", volumeDb);
+    }
+
+    public float SendBeatInterval()
+    {
+        return beatTimer.beatInterval;
+    }
+
 
 
     //keeps making the crowd smaller if it keeps going
@@ -683,6 +582,99 @@ public class GameController : MonoBehaviour
 
         width = newWidth;
         height = newHeight;
+    }*/
+    /*void HandleMerging()// Maybe change it so that it works with colliders instead?????????
+    {
+        var mergeGroups = new Dictionary<Vector2Int, List<Triangle>>();
+
+        // Group triangles by their current and previous positions
+        foreach (var enemy in enemies)
+        {
+            if (!mergeGroups.ContainsKey(enemy.position))
+            {
+                mergeGroups[enemy.position] = new List<Triangle>();
+            }
+            mergeGroups[enemy.position].Add(enemy);
+
+            if (enemy.previousPosition != enemy.position) // If the triangle moved, consider its previous position too
+            {
+                if (!mergeGroups.ContainsKey(enemy.previousPosition))
+                {
+                    mergeGroups[enemy.previousPosition] = new List<Triangle>();
+                }
+                mergeGroups[enemy.previousPosition].Add(enemy);
+            }
+        }
+
+        // Merge triangles that have crossed paths or are on the same tile with the same power level and move count greater than 0
+        foreach (var group in mergeGroups.Values)
+        {
+            if (group.Count > 1)
+            {
+                var mergeCandidates = new List<Triangle>();
+                int powerLevel = group[0].powerLevel;
+
+                foreach (var triangle in group)
+                {
+                    if (triangle.powerLevel == powerLevel && triangle.moveCount > 0)
+                    {
+                        mergeCandidates.Add(triangle);
+                    }
+                }
+
+                if (mergeCandidates.Count > 1)
+                {
+                    MergeTriangles(mergeCandidates);
+                }
+            }
+        }
+    }*/
+
+    /*void HandleSpotlightMerging()// Maybe change it so that it works with colliders instead?????????
+    {
+        var mergeGroups = new Dictionary<Vector2Int, List<SpotlightSquare>>();
+
+        // Group spotlights by their current and previous positions
+        foreach (var spotlight in spotlights)
+        {
+            if (!mergeGroups.ContainsKey(spotlight.position))
+            {
+                mergeGroups[spotlight.position] = new List<SpotlightSquare>();
+            }
+            mergeGroups[spotlight.position].Add(spotlight);
+
+            if (spotlight.previousPosition != spotlight.position) // If the spotlight moved, consider its previous position too
+            {
+                if (!mergeGroups.ContainsKey(spotlight.previousPosition))
+                {
+                    mergeGroups[spotlight.previousPosition] = new List<SpotlightSquare>();
+                }
+                mergeGroups[spotlight.previousPosition].Add(spotlight);
+            }
+        }
+
+        // Merge spotlights that have crossed paths or are on the same tile with the same power level and move count greater than 0
+        foreach (var group in mergeGroups.Values)
+        {
+            if (group.Count > 1)
+            {
+                var mergeCandidates = new List<SpotlightSquare>();
+                int powerLevel = group[0].powerLevel;
+
+                foreach (var spotlight in group)
+                {
+                    if (spotlight.powerLevel == powerLevel && spotlight.moveCount > 0)
+                    {
+                        mergeCandidates.Add(spotlight);
+                    }
+                }
+
+                if (mergeCandidates.Count > 1)
+                {
+                    MergeSpotlights(mergeCandidates);
+                }
+            }
+        }
     }*/
 
 }
