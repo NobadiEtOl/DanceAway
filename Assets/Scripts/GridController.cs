@@ -9,7 +9,7 @@ using static GameController;
 public class GridController : MonoBehaviour
 {
     private GameController gc;
-    [SerializeField]private GameObject tilePrefab; 
+    [SerializeField]public GameObject tilePrefab; 
     // Start is called before the first frame update
     public void Initialize()
     {
@@ -95,6 +95,39 @@ public class GridController : MonoBehaviour
 
 
         gc.player.ChangeGridBounds();
+    }
+
+    public void FlashBoundaryTiles()
+    {
+        int[] next = GetNextBounds();
+        if (next == null) return;
+
+        int nMinX = next[0], nMaxX = next[1], nMinY = next[2], nMaxY = next[3];
+        Color flashColor = new Color(1f, 0.15f, 0.15f, 1f);
+
+        for (int x = nMinX; x < nMaxX; x++)
+        {
+            for (int y = nMinY; y < nMaxY; y++)
+            {
+                if (x == nMinX || x == nMaxX - 1 || y == nMinY || y == nMaxY - 1)
+                {
+                    grid[x, y].GetComponent<SpriteRenderer>().color = flashColor;
+                }
+            }
+        }
+    }
+
+    private int[] GetNextBounds()
+    {
+        if (gc.enemies.Count > 30)
+            return new int[] { 0, 9, 0, 9 };
+        else if (gc.enemies.Count > 18)
+            return new int[] { 1, 8, 1, 8 };
+        else if (gc.enemies.Count > 3)
+            return new int[] { 2, 7, 2, 7 };
+        else if (gc.enemies.Count > 0)
+            return new int[] { 3, 6, 3, 6 };
+        return null;
     }
 
     //Level başlarında grid size ı düzeltmek için kullan.

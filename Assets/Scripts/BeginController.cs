@@ -18,7 +18,9 @@ public class BeginController : MonoBehaviour
     [SerializeField]private GameObject startButton;
     [SerializeField]private GameObject tutorialButton;
     [SerializeField]private Image background;
+    [SerializeField]private IntroSequenceController introSequenceController;
     private static bool alreadyStarted = false;
+    private bool _gameReadyCalled;
     // Start is called before the first frame update
     void Start()
     {
@@ -33,12 +35,17 @@ public class BeginController : MonoBehaviour
     }
 
     [SerializeField]private bool readyToPlay=false;
+    /// <summary>0–1 progress value driven by the load timer. Used by IntroSequenceController.</summary>
+    public float LoadProgress => Mathf.Clamp01(beginTimer / loadTime);
     void Update()
     {
+        if (_gameReadyCalled) return;
+
         beginTimer+= Time.deltaTime;
         if((beginTimer>=loadTime && isClicked) || readyToPlay || alreadyStarted)
         {
             alreadyStarted=true;
+            _gameReadyCalled = true;
             clickToBegin.SetActive(false);
             GameReady();
         }
@@ -81,10 +88,24 @@ public class BeginController : MonoBehaviour
     private void GameReady()
     {
         danceAway.SetActive(true);
+        loadSlider.gameObject.SetActive(false);
+
+        if (introSequenceController != null)
+        {
+            // Intro controller starts the beat timer and calls ShowStartScreen when the walk finishes.
+            introSequenceController.OnLoadingComplete(ShowStartScreen);
+        }
+        else
+        {
+            // Fallback when no intro controller is assigned.
+            gameController.BeatTimerBegin();
+            ShowStartScreen();
+        }
+    }
+
+    private void ShowStartScreen()
+    {
         startButton.SetActive(true);
         tutorialButton.SetActive(true);
-        loadSlider.gameObject.SetActive(false);
-        gameController.BeatTimerBegin();
-        
-    } 
+    }
 }

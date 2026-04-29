@@ -94,7 +94,12 @@ public class Player : MonoBehaviour
 
         bool validMove=true;
 
-        if (State == BeatState.OffBeat || moveCount > 2)
+        // A crowd push always succeeds — bypass beat-timing and move-count checks
+        if (pushed)
+        {
+            validMove = true;
+        }
+        else if (State == BeatState.OffBeat || moveCount > 2)
         {
             validMove=false; // Ignore movement if in OffBeat
         }
@@ -106,6 +111,21 @@ public class Player : MonoBehaviour
         // Check if the new position is within the grid bounds
         if (crowdPushFlag || (newPosition.x >= gridBoundsPlayer[0] && newPosition.x < gridBoundsPlayer[1] && newPosition.y >= gridBoundsPlayer[2] && newPosition.y < gridBoundsPlayer[3]))
         {
+            // Update logical position and apply force only when the move is valid
+            if (validMove)
+            {
+                position = newPosition;
+                rb.AddForce(direction*(int)(200*tileSize));
+            }
+
+            // Pushed moves are silent — no score, no UI, no combo change
+            if (pushed)
+            {
+                moveCount++;
+                StartCoroutine(ResetAnimation("Player_Moving"));
+                return;
+            }
+
             int scoreIncrement = 0;
             CheckForSpotlightCollision();// Find out how much mult is.
             
@@ -145,20 +165,11 @@ public class Player : MonoBehaviour
                 beatStateText.text = "WTF";
             }
 
-
-
-            // Update player's position and move player.           
-            if(validMove)
-            {
-                position = newPosition;
-                rb.AddForce(direction*(int)(200*tileSize));
-            }
-            
             //Only one triangle with the highest powerLevel gets hit.
             canHit = scoreIncrement*mult*(gameController.canStart ? 1 : 0);
             HitWeakestTriangle(canHit);
 
-            // Giving negative score without the spotlight multiplier
+            // Score only applies to valid (on-beat) moves
             if(validMove)score += (scoreIncrement+ moveCombo)*mult;
             scoreIncText.text = "+" + (scoreIncrement*mult).ToString();
 
@@ -390,9 +401,9 @@ public class Player : MonoBehaviour
             }
         }
 
-        if(position.x > gridBoundsPlayer[1])
+        if(position.x >= gridBoundsPlayer[1])
         {
-            for(int i = position.x-gridBoundsPlayer[1]; i > 0; i--)
+            for(int i = position.x-gridBoundsPlayer[1]+1; i > 0; i--)
             {
                 Move(Vector2Int.left,true);
             }
@@ -405,9 +416,9 @@ public class Player : MonoBehaviour
                 Move(Vector2Int.up,true);
             }
         }
-        if(position.y > gridBoundsPlayer[3])
+        if(position.y >= gridBoundsPlayer[3])
         {
-            for(int i = position.y-gridBoundsPlayer[3]; i > 0; i--)
+            for(int i = position.y-gridBoundsPlayer[3]+1; i > 0; i--)
             {
                 Move(Vector2Int.down,true);
             }

@@ -18,13 +18,19 @@ public class BeatTimer : MonoBehaviour
     public event Action OnBeat;
     public event Action OffBeat;
     private SpriteRenderer backGround;
-    private double timer;
     private float tolerance;
     private float beatTolerance;
+    // ---- Centralized Beat Track ----
+    // nextBeatDsp: DSP timestamp when the next beat will fire.
+    // Advances forward each beat — never reset, never modulo.
+    private double nextBeatDsp;
+    private bool trackStarted = false; // latches true on the first active FixedUpdate
+    public float trackPitch = 0.8333f; // centralized pitch — one value controls all sources
+    // ---------------------------------
     public BeatState state { get; set; }
     public bool play = false;
     public int beatCounter;
-    private int beatCheckCounter = 0;
+    private bool beatFired = false;
     [SerializeField]private SnapController snapController;
 
     void Awake()
@@ -32,28 +38,26 @@ public class BeatTimer : MonoBehaviour
 
     }
 
-    private float beatIndicatorSpeed;
     private Vector3 beatIndLeftPos;
     void Start()
     {
         backGround = GameObject.Find("BackGround").GetComponent<SpriteRenderer>();
         gameController = GetComponent<GameController>();
-        tolerance = beatInterval / 20;
-        beatTolerance = beatInterval / 15;
-        audioDelay = beatInterval*0.9f;
-        beatIndicatorSpeed = beatIndicator.rectTransform.rect.width/(beatInterval/2);
+        tolerance = beatInterval / 20f;
+        beatTolerance = beatInterval / 15f;
+        audioDelay = beatInterval * 0.9f;
         RectTransform rectTransform = beatIndicator.GetComponent<RectTransform>();
         beatIndLeftPos = rectTransform.position - new Vector3(rectTransform.rect.width * rectTransform.lossyScale.x / 2, 0, 0);
         StartAfterDelay();
     }
 
-    public bool begin= false;
+    public bool begin = false;
     public void StartAfterDelay()
     {
         beatCounter = -1;
-        beatCheckCounter = -1;
         play = true;
         state = BeatState.OffBeat;
+        trackStarted = false; // force re-anchor of nextBeatDsp on the next active frame
     }
 
 
@@ -61,127 +65,148 @@ public class BeatTimer : MonoBehaviour
     {
         if (begin)
         {
-            timer = (double)AudioSettings.dspTime + tolerance*4; // Use dspTime for accurate timing
             if (timeS != 1) Time.timeScale = 1 * timeS;
-            CheckAction();
-            if(backText)backText.text = backSlider.value.ToString();
-            float beatIndTimer = (float)timer % beatInterval;
-            if(beatIndTimer < beatInterval/2)
+
+            // Recompute tolerance and audioDelay every frame so they stay accurate after SetTempo
+            tolerance  = beatInterval / 20f;
+            audioDelay = beatInterval * 0.9f;
+
+            double dsp = AudioSettings.dspTime;
+
+            // Anchor the track to DSP time on the very first active frame
+            if (!trackStarted)
             {
-                beatIndicatorCurrent.position = new Vector3(200+beatIndLeftPos.x-beatIndicatorSpeed*beatIndTimer,beatIndicatorCurrent.position.y,5);
+                nextBeatDsp  = dsp + beatInterval;
+                trackStarted = true;
             }
-            else if(beatIndTimer >= beatInterval/2)
+
+            // Lookahead: fire the beat event tolerance*4 seconds before the actual DSP beat time,
+            // giving enough lead time for PlayScheduled calls to the audio hardware.
+            double lookahead = dsp + tolerance * 4.0;
+
+            if (lookahead >= nextBeatDsp && !beatFired)
             {
-                beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x+beatIndicatorSpeed*(beatIndTimer%(beatInterval/2)),beatIndicatorCurrent.position.y,5);      
-            }
-        }
+                beatFired = true;
+                double thisBeatDsp = nextBeatDsp; // exact DSP time of this beat for audio scheduling
+                nextBeatDsp += beatInterval;       // advance track — never reset
 
-        //dpsText.text = timer.ToString();
-    }
-
-    private bool beatFlag = true;
-
-    void CheckAction()
-    {
-        double modTimer = timer % beatInterval;
-        UpdateBeatState(modTimer);
-    }
-
-    private BeatState preState;
-    private void UpdateBeatState(double modTimer)
-    {
-        // Adjust beat state color based on proximity to the beat
-        if (modTimer <= tolerance || modTimer >= beatInterval - tolerance)
-        {
-            if(beatFlag)
-            {
                 beatCounter++;
                 OnBeat?.Invoke();
-                beatFlag = false; // Ensure the beat is only triggered once per interval
-                
+
                 if (beatCounter % 16 == 0)
                 {
                     if (play)
                     {
-                        PlayBack(); // Now delayed wi   th coroutine
+                        gameController.PlayBackScheduled(thisBeatDsp);
                         play = false;
                     }
-                    PlayHand(); // Now delayed with coroutine
+                    gameController.PlayHandScheduled(thisBeatDsp);
                 }
             }
+            else if (lookahead < nextBeatDsp - tolerance)
+            {
+                beatFired = false; // reset so the next beat can fire
+            }
 
-            backGround.color = Color.red;
-            backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
+            if(backText) backText.text = backSlider.value.ToString();
+
+            // Beat phase: seconds elapsed since the last beat (0 → beatInterval), used for
+            // scoring windows, background color, and the beat indicator position.
+            double beatPhase = dsp - (nextBeatDsp - beatInterval);
+            beatPhase = System.Math.Max(0.0, beatPhase);
+
+            UpdateBeatState(beatPhase);
+            UpdateIndicator((float)beatPhase);
+        }
+    }
+
+    // Returns the DSP timestamp N beats from now (0 = next beat, 1 = beat after next, etc.)
+    public double GetBeatDsp(int beatsFromNow = 0) => nextBeatDsp + beatsFromNow * beatInterval;
+
+    // Atomically snaps tempo at a beat boundary.
+    // Only beatInterval and pitch change — nextBeatDsp is untouched so the track stays stable.
+    public void SetTempo(float newInterval, float newPitch)
+    {
+        beatInterval = newInterval;
+        trackPitch   = newPitch;
+        for (int i = 0; i < GameController.audioSources.Length; i++)
+            GameController.audioSources[i].pitch = newPitch;
+        // nextBeatDsp is already correct — the track continues from the next queued beat
+    }
+
+    // Pauses the track, preserving its position
+    private double pausedAtDsp;
+    public void PauseTrack()
+    {
+        pausedAtDsp = AudioSettings.dspTime;
+        begin = false;
+    }
+
+    // Resumes the track by shifting nextBeatDsp forward over the paused gap
+    public void ResumeTrack()
+    {
+        double offset = AudioSettings.dspTime - pausedAtDsp;
+        nextBeatDsp += offset;
+        begin = true;
+    }
+
+    private BeatState preState;
+    private void UpdateBeatState(double beatPhase)
+    {
+        if (beatPhase <= tolerance || beatPhase >= beatInterval - tolerance)
+        {
+            backGround.color = new Color(1f, 0f, 0f, 0.01f);
             state = BeatState.PerfectBeat;
         }
-
         else
         {
-            // Reset beatFlag to allow the next beat
-            beatFlag = true;
-            UpdateBeatVisuals(modTimer);  // Adjust colors for intermediate states
+            UpdateBeatVisuals(beatPhase);
         }
 
-        if(preState != state)
+        if (preState != state)
         {
-            preState=state;
+            preState = state;
             snapController.ChangeSnap(state);
         }
     }
 
-    private void UpdateBeatVisuals(double modTimer)
+    private void UpdateBeatVisuals(double beatPhase)
     {
-        if (modTimer <= 2 * tolerance || (modTimer >= (beatInterval - 2 * tolerance)))
+        if (beatPhase <= 2 * tolerance || beatPhase >= beatInterval - 2 * tolerance)
         {
-            backGround.color = Color.blue;
-            backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
+            backGround.color = new Color(0f, 0f, 1f, 0.01f);
             state = BeatState.CloseBeat;
         }
-        else if (modTimer <= 3 * tolerance || (modTimer >= (beatInterval - 3 * tolerance)))
+        else if (beatPhase <= 3 * tolerance || beatPhase >= beatInterval - 3 * tolerance)
         {
-            backGround.color = Color.green;
-            backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
+            backGround.color = new Color(0f, 1f, 0f, 0.01f);
             state = BeatState.MiddleBeat;
         }
-        else if (modTimer <= 4 * tolerance || (modTimer >= (beatInterval - 4 * tolerance)))
+        else if (beatPhase <= 4 * tolerance || beatPhase >= beatInterval - 4 * tolerance)
         {
-            backGround.color = Color.yellow;
-            backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
+            backGround.color = new Color(1f, 1f, 0f, 0.01f);
             state = BeatState.FarBeat;
         }
         else
         {
-            backGround.color = Color.black;
-            backGround.color = new Color(backGround.color.r, backGround.color.g, backGround.color.b, 0.01f);
-            if(state == BeatState.FarBeat) OffBeat?.Invoke();
+            backGround.color = new Color(0f, 0f, 0f, 0.01f);
+            if (state == BeatState.FarBeat) OffBeat?.Invoke();
             state = BeatState.OffBeat;
-            if (!beatFlag) beatFlag = true;
         }
-
     }
 
-    // Use coroutine for PlayBack to delay its execution
-    private void PlayBack()
+    private void UpdateIndicator(float beatPhase)
     {
-        StartCoroutine(DelayedPlayBack(audioDelay));
-    }
-
-    private IEnumerator DelayedPlayBack(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (gameController) gameController.PlayBack();
-    }
-
-    // Use coroutine for PlayHand to delay its execution
-    void PlayHand()
-    {
-        StartCoroutine(DelayedPlayHand(audioDelay));
-    }
-
-    private IEnumerator DelayedPlayHand(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (gameController) gameController.PlayHand();
+        float beatIndicatorSpeed = beatIndicator.rectTransform.rect.width / (beatInterval / 2f);
+        float tInd = Mathf.Clamp(beatPhase, 0f, beatInterval);
+        if (tInd < beatInterval / 2f)
+        {
+            beatIndicatorCurrent.position = new Vector3(200 + beatIndLeftPos.x - beatIndicatorSpeed * tInd, beatIndicatorCurrent.position.y, 5);
+        }
+        else
+        {
+            beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x + beatIndicatorSpeed * (tInd - beatInterval / 2f), beatIndicatorCurrent.position.y, 5);
+        }
     }
 
     public void ResetBeatCounter()

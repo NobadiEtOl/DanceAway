@@ -55,6 +55,8 @@ public class GameController : MonoBehaviour
     private GridController gridController;
     private SwipeController swipeController;
     public bool canStart=false;
+    /// <summary>Set true by default so all gameplay logic is blocked until the intro sequence finishes.</summary>
+    public bool introRunning = true;
     [SerializeField]private GameObject startScreen;
     [SerializeField]private GameObject settingScreen;
     [SerializeField]private GameObject healthBar;
@@ -86,8 +88,9 @@ public class GameController : MonoBehaviour
         //Initializng the player before the start of the game. 
         player.StartPlayer();
 
-        //Subscribing to the OnBeat event
+        //Subscribing to beat events
         beatTimer.OnBeat += HandleBeat;
+        beatTimer.OffBeat += HandleOffBeat;
 
         //Initializin onValueChanged for the volume slider
         volumeSlider.onValueChanged.AddListener(AdjustVolume);
@@ -108,9 +111,12 @@ public class GameController : MonoBehaviour
 
         crowdController.GetCrowdParents();
 
-        crowdController.ResizeCrowd();
-
-        StartGame();
+        // Guarded: IntroSequenceController will call these after the intro walk finishes.
+        if (!introRunning)
+        {
+            crowdController.ResizeCrowd();
+            StartGame();
+        }
     }
 
     private void InitializeComponents()
@@ -133,6 +139,9 @@ public class GameController : MonoBehaviour
 
         beatCounter++;
 
+        // During intro: allow tile color-switching so the arena looks alive, but block all gameplay.
+        if (introRunning) { SwitchColor(); return; }
+
         if(canStart)StartCoroutine(HandleBeatCoroutine());
         
         foreach (var spotlight in spotlights)
@@ -153,6 +162,12 @@ public class GameController : MonoBehaviour
         }
         //Switches the colors of the tiles each beat
         SwitchColor();
+
+        // Flash the upcoming boundary tiles so the player can anticipate the crowd closing in
+        if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1)
+        {
+            gridController.FlashBoundaryTiles();
+        }
     }
 
     public int enemiesKilled = 0;
@@ -172,7 +187,12 @@ public class GameController : MonoBehaviour
             yield return null;
         }
 
-        // After all enemies have moved, handle grid bounds change if needed
+    }
+
+    // Runs at OffBeat (after the scoring window closes, before the next beat)
+    void HandleOffBeat()
+    {
+        // Grid contraction fires here so it never overlaps with the player's scoring window
         if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1)
         {
             gridController.ChangeGridBounds();
@@ -203,7 +223,7 @@ public class GameController : MonoBehaviour
     }
 
     public int avarage=0;// To keep track of how good the player is doing
-    public void PlayHand()
+    public void PlayHandScheduled(double dspTime)
     {   
         avarage=avarage/16;
     
@@ -219,42 +239,38 @@ public class GameController : MonoBehaviour
         if(avarage>=75)
         {
             audioSources[1].volume = 0.3f;
-            audioSources[1].Play();
+            audioSources[1].PlayScheduled(dspTime);
             crowdController.MoreNodders(20);
         }
         if(avarage>=130)
         {
             audioSources[2].volume = 0.5f;
-            audioSources[2].Play();
+            audioSources[2].PlayScheduled(dspTime);
             crowdController.MoreNodders(50);
         }
         
         if(levelNo>=30)
         {
             audioSources[5].volume = 0.5f;
-            audioSources[5].Play();
+            audioSources[5].PlayScheduled(dspTime);
         }
         else if(levelNo>=20)
         {
             audioSources[4].volume = 0.4f;
-            audioSources[4].Play();
+            audioSources[4].PlayScheduled(dspTime);
         }
         else if(levelNo>=10)
         {
             audioSources[3].volume = 0.5f;
-            audioSources[3].Play();
+            audioSources[3].PlayScheduled(dspTime);
         } 
         avarage=0;
     }
 
-    public void PlayBack()
+    public void PlayBackScheduled(double dspTime)
     {
-        audioSources[0].volume = 0.6f;   
-        audioSources[0].Play();
-        if(!audioSources[0].isPlaying)
-        {
-            player.TakeDamage(50);
-        }
+        audioSources[0].volume = 0.6f;
+        audioSources[0].PlayScheduled(dspTime);
     }
 
     public void LessNodders(int no)
@@ -393,7 +409,7 @@ public class GameController : MonoBehaviour
         //Camera.main.orthographicSize = targetSize;
     }
 
-    void StartGame()
+    public void StartGame()
     {
         ChangeState(GameState.Play);
         //beatTimer.StartAfterDelay();
@@ -432,7 +448,7 @@ public class GameController : MonoBehaviour
     [SerializeField]public bool gridBoundsFlag=false;
     void Update()
     {
-        if (currentState == GameState.Play)
+        if (currentState == GameState.Play && !introRunning)
         {
             player.HandleInput();
         }
