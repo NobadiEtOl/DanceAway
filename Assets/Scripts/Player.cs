@@ -64,6 +64,7 @@ public class Player : MonoBehaviour
         beatStateText.text = "";
         multText.text="";
         scoreIncText.text="";
+        beatStateText.gameObject.SetActive(false);
 
         rb = GetComponent<Rigidbody2D>();
         health = maxHealth;
@@ -74,6 +75,11 @@ public class Player : MonoBehaviour
 
         beatTimer.OffBeat += ResetMove;
 
+    }
+
+    public void EnableBeatStateText()
+    {
+        beatStateText.gameObject.SetActive(true);
     }
 
     void FixedUpdate()
@@ -179,7 +185,7 @@ public class Player : MonoBehaviour
             multTextAnimator.Play("MultText",-1,0f);
             scoreIncTextAnimator.Play("ScoreIncText",-1,0f);
             comboTextAnimator.Play("ComboText",-1,0f);
-            gameController.avarage+= scoreIncrement;
+            if (!gameController.lockAvarageAtMax) gameController.avarage += scoreIncrement;
             multText.text = "x" + mult.ToString();
             if(moveCombo!=0)comboText.text = "x" + moveCombo.ToString();
             else comboText.text = "";
@@ -427,7 +433,6 @@ public class Player : MonoBehaviour
 
     public void PlaceScore()
     {
-        scoreText.gameObject.transform.localPosition = new Vector2(0, -360);
         scoreText.text = "0";
     }
 

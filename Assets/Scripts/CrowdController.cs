@@ -131,6 +131,19 @@ public class CrowdController : MonoBehaviour
             nodders[i].canNod = true;
         }
     }
+    /// <summary>Moves every crowd member into the nodding state — used to match the max-average lock before Start is pressed.</summary>
+    public void MaxNodders()
+    {
+        MoreNodders(notNodders.Count);
+
+        // Some nodders may already be in the list from initialization.
+        // Force-enable all of them so nobody stays idle.
+        for (int i = 0; i < nodders.Count; i++)
+        {
+            nodders[i].canNod = true;
+        }
+    }
+
     // Method to randomly deactivate some cTriangles to not nod
     public void LessNodders(int less)
     {
@@ -150,35 +163,79 @@ public class CrowdController : MonoBehaviour
     private bool canResize=true;
     public void ResizeCrowd()
     {
-        if(canResize)StartCoroutine(ChangeCrowdPos(gc.width-gridBounds[1]));
+        if(!canResize) return;
+
+        int bound = gc.width - gridBounds[1];
+        Vector3[] targetPos = new Vector3[]
+        {
+            leftCrowdPos + new Vector3(bound * gc.tileSize, 0, 0),
+            rightCrowdPos + new Vector3(-bound * gc.tileSize, 0, 0),
+            bottomCrowdPos + new Vector3(0, bound * gc.tileSize, 0),
+            topCrowdPos + new Vector3(0, -bound * gc.tileSize, 0)
+        };
+
+        StartCoroutine(ChangeCrowdPosToTargets(targetPos, cameraTransitionDuration));
+    }
+
+    public void ResizeCrowdToTargets(Vector3 leftTarget, Vector3 rightTarget, Vector3 bottomTarget, Vector3 topTarget, float duration = -1f)
+    {
+        if (!canResize) return;
+
+        float transitionDuration = duration > 0f ? duration : cameraTransitionDuration;
+        Vector3[] targetPos = new Vector3[]
+        {
+            leftTarget,
+            rightTarget,
+            bottomTarget,
+            topTarget
+        };
+
+        StartCoroutine(ChangeCrowdPosToTargets(targetPos, transitionDuration));
+    }
+
+    public void SetCrowdWorldPositions(Vector3 leftPos, Vector3 rightPos, Vector3 bottomPos, Vector3 topPos)
+    {
+        leftCrowd.transform.position = leftPos;
+        rightCrowd.transform.position = rightPos;
+        bottomCrowd.transform.position = bottomPos;
+        topCrowd.transform.position = topPos;
     }
 
     public float cameraTransitionDuration = 1f;
-    private IEnumerator ChangeCrowdPos(int bound)
+    private IEnumerator ChangeCrowdPosToTargets(Vector3[] targetPos, float duration)
     {
         canResize=false;
-        float timePassed = 0.1f;
+        float timePassed = 0f;
         Vector3[] initialPos = new Vector3[]
         {leftCrowd.transform.position,
         rightCrowd.transform.position,
         bottomCrowd.transform.position,
         topCrowd.transform.position};
 
-        Vector3[] targetPos = new Vector3[]
-        {leftCrowdPos + new Vector3(bound*gc.tileSize,0,0),
-        rightCrowdPos + new Vector3(-bound*gc.tileSize,0,0),
-        bottomCrowdPos + new Vector3(0,bound*gc.tileSize,0),
-        topCrowdPos + new Vector3(0,-bound*gc.tileSize,0)};
-
-        while(timePassed<cameraTransitionDuration)
+        if (duration <= 0f)
         {
-            leftCrowd.transform.position = new Vector3(Mathf.Lerp(initialPos[0].x, targetPos[0].x,timePassed/cameraTransitionDuration),leftCrowd.transform.position.y,0);
-            rightCrowd.transform.position = new Vector3(Mathf.Lerp(initialPos[1].x, targetPos[1].x,timePassed/cameraTransitionDuration),rightCrowd.transform.position.y,0);
-            bottomCrowd.transform.position = new Vector3(bottomCrowd.transform.position.x,Mathf.Lerp(initialPos[2].y, targetPos[2].y,timePassed/cameraTransitionDuration),0);
-            topCrowd.transform.position = new Vector3(topCrowd.transform.position.x,Mathf.Lerp(initialPos[3].y, targetPos[3].y,timePassed/cameraTransitionDuration),0);
+            SetCrowdWorldPositions(targetPos[0], targetPos[1], targetPos[2], targetPos[3]);
+            canResize = true;
+            yield break;
+        }
+
+        while(timePassed<duration)
+        {
+            float t = timePassed / duration;
+            leftCrowd.transform.position = new Vector3(Mathf.Lerp(initialPos[0].x, targetPos[0].x, t), leftCrowd.transform.position.y, 0);
+            rightCrowd.transform.position = new Vector3(Mathf.Lerp(initialPos[1].x, targetPos[1].x, t), rightCrowd.transform.position.y, 0);
+            bottomCrowd.transform.position = new Vector3(bottomCrowd.transform.position.x, Mathf.Lerp(initialPos[2].y, targetPos[2].y, t), 0);
+            topCrowd.transform.position = new Vector3(topCrowd.transform.position.x, Mathf.Lerp(initialPos[3].y, targetPos[3].y, t), 0);
             timePassed += Time.deltaTime;
             yield return null;
         }
+
+        SetCrowdWorldPositions(
+            new Vector3(targetPos[0].x, leftCrowd.transform.position.y, 0),
+            new Vector3(targetPos[1].x, rightCrowd.transform.position.y, 0),
+            new Vector3(bottomCrowd.transform.position.x, targetPos[2].y, 0),
+            new Vector3(topCrowd.transform.position.x, targetPos[3].y, 0)
+        );
 
         canResize=true;
 

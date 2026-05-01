@@ -19,11 +19,21 @@ public class BeatTimer : MonoBehaviour
     public event Action OffBeat;
     private SpriteRenderer backGround;
     private float tolerance;
-    private float beatTolerance;
+    // Difficulty: divisor applied to beatInterval to derive tolerance. Easy=12, Normal=20, Hard=35.
+    [SerializeField] public float toleranceDivisor = 20f;
+    // Fixed lookahead for audio scheduling — decoupled from tolerance so difficulty doesn't affect audio timing.
+    [SerializeField] private float audioLookaheadSeconds = 0.12f;
+    // Color squares (right-aligned, right=perfect): wire in Inspector
+    [SerializeField] private RectTransform perfectSquare;
+    [SerializeField] private RectTransform closeSquare;
+    [SerializeField] private RectTransform middleSquare;
+    [SerializeField] private RectTransform farSquare;
+    private float barWidth;
     // ---- Centralized Beat Track ----
     // nextBeatDsp: DSP timestamp when the next beat will fire.
     // Advances forward each beat — never reset, never modulo.
     private double nextBeatDsp;
+    private double lastBeatDsp;  // DSP timestamp of the most recent actual beat
     private bool trackStarted = false; // latches true on the first active FixedUpdate
     public float trackPitch = 0.8333f; // centralized pitch — one value controls all sources
     // ---------------------------------
@@ -43,11 +53,13 @@ public class BeatTimer : MonoBehaviour
     {
         backGround = GameObject.Find("BackGround").GetComponent<SpriteRenderer>();
         gameController = GetComponent<GameController>();
-        tolerance = beatInterval / 20f;
-        beatTolerance = beatInterval / 15f;
+        tolerance = beatInterval / toleranceDivisor;
         audioDelay = beatInterval * 0.9f;
         RectTransform rectTransform = beatIndicator.GetComponent<RectTransform>();
-        beatIndLeftPos = rectTransform.position - new Vector3(rectTransform.rect.width * rectTransform.lossyScale.x / 2, 0, 0);
+        barWidth = rectTransform.rect.width * rectTransform.lossyScale.x;
+        beatIndLeftPos = rectTransform.position - new Vector3(barWidth / 2, 0, 0);
+        beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x, beatIndicatorCurrent.position.y, 5f);
+        ResizeColorSquares();
         StartAfterDelay();
     }
 
@@ -68,7 +80,7 @@ public class BeatTimer : MonoBehaviour
             if (timeS != 1) Time.timeScale = 1 * timeS;
 
             // Recompute tolerance and audioDelay every frame so they stay accurate after SetTempo
-            tolerance  = beatInterval / 20f;
+            tolerance  = beatInterval / toleranceDivisor;
             audioDelay = beatInterval * 0.9f;
 
             double dsp = AudioSettings.dspTime;
@@ -80,14 +92,16 @@ public class BeatTimer : MonoBehaviour
                 trackStarted = true;
             }
 
-            // Lookahead: fire the beat event tolerance*4 seconds before the actual DSP beat time,
+            // Lookahead: fire the beat event audioLookaheadSeconds before the actual DSP beat time,
             // giving enough lead time for PlayScheduled calls to the audio hardware.
-            double lookahead = dsp + tolerance * 4.0;
+            // Fixed and decoupled from tolerance so difficulty changes don't affect audio scheduling.
+            double lookahead = dsp + audioLookaheadSeconds;
 
             if (lookahead >= nextBeatDsp && !beatFired)
             {
                 beatFired = true;
                 double thisBeatDsp = nextBeatDsp; // exact DSP time of this beat for audio scheduling
+                lastBeatDsp = thisBeatDsp;         // record for distance calculation
                 nextBeatDsp += beatInterval;       // advance track — never reset
 
                 beatCounter++;
@@ -103,20 +117,23 @@ public class BeatTimer : MonoBehaviour
                     gameController.PlayHandScheduled(thisBeatDsp);
                 }
             }
-            else if (lookahead < nextBeatDsp - tolerance)
+            else if (lookahead < nextBeatDsp - audioLookaheadSeconds)
             {
                 beatFired = false; // reset so the next beat can fire
             }
 
             if(backText) backText.text = backSlider.value.ToString();
 
-            // Beat phase: seconds elapsed since the last beat (0 → beatInterval), used for
-            // scoring windows, background color, and the beat indicator position.
-            double beatPhase = dsp - (nextBeatDsp - beatInterval);
-            beatPhase = System.Math.Max(0.0, beatPhase);
+            // Symmetric distance from the nearest beat, in seconds.
+            // 0 = right on the beat, beatInterval/2 = furthest from any beat.
+            // Continuous and jump-free because both sides equal 0 at the beat moment.
+            double timeSinceBeat = dsp - lastBeatDsp;
+            double timeUntilBeat = nextBeatDsp - dsp;
+            double distFromBeat  = System.Math.Min(System.Math.Abs(timeSinceBeat), timeUntilBeat);
+            distFromBeat         = System.Math.Max(0.0, distFromBeat);
 
-            UpdateBeatState(beatPhase);
-            UpdateIndicator((float)beatPhase);
+            UpdateBeatState(distFromBeat);
+            UpdateIndicator((float)distFromBeat);
         }
     }
 
@@ -151,38 +168,25 @@ public class BeatTimer : MonoBehaviour
     }
 
     private BeatState preState;
-    private void UpdateBeatState(double beatPhase)
+    // distFromBeat: 0 = on the beat (RIGHT/PerfectBeat), beatInterval/2 = midway (LEFT/OffBeat)
+    private void UpdateBeatState(double distFromBeat)
     {
-        if (beatPhase <= tolerance || beatPhase >= beatInterval - tolerance)
+        if (distFromBeat <= tolerance)
         {
             backGround.color = new Color(1f, 0f, 0f, 0.01f);
             state = BeatState.PerfectBeat;
         }
-        else
-        {
-            UpdateBeatVisuals(beatPhase);
-        }
-
-        if (preState != state)
-        {
-            preState = state;
-            snapController.ChangeSnap(state);
-        }
-    }
-
-    private void UpdateBeatVisuals(double beatPhase)
-    {
-        if (beatPhase <= 2 * tolerance || beatPhase >= beatInterval - 2 * tolerance)
+        else if (distFromBeat <= 2 * tolerance)
         {
             backGround.color = new Color(0f, 0f, 1f, 0.01f);
             state = BeatState.CloseBeat;
         }
-        else if (beatPhase <= 3 * tolerance || beatPhase >= beatInterval - 3 * tolerance)
+        else if (distFromBeat <= 3 * tolerance)
         {
             backGround.color = new Color(0f, 1f, 0f, 0.01f);
             state = BeatState.MiddleBeat;
         }
-        else if (beatPhase <= 4 * tolerance || beatPhase >= beatInterval - 4 * tolerance)
+        else if (distFromBeat <= 4 * tolerance)
         {
             backGround.color = new Color(1f, 1f, 0f, 0.01f);
             state = BeatState.FarBeat;
@@ -193,20 +197,48 @@ public class BeatTimer : MonoBehaviour
             if (state == BeatState.FarBeat) OffBeat?.Invoke();
             state = BeatState.OffBeat;
         }
+
+        if (preState != state)
+        {
+            preState = state;
+            snapController.ChangeSnap(state);
+        }
     }
 
-    private void UpdateIndicator(float beatPhase)
+    // distFromBeat: 0 = on the beat → indicator at RIGHT, beatInterval/2 = furthest → indicator at LEFT
+    private void UpdateIndicator(float distFromBeat)
     {
-        float beatIndicatorSpeed = beatIndicator.rectTransform.rect.width / (beatInterval / 2f);
-        float tInd = Mathf.Clamp(beatPhase, 0f, beatInterval);
-        if (tInd < beatInterval / 2f)
+        // 1 when on the beat (RIGHT), 0 when beatInterval/2 away (LEFT). Smooth, no jumps.
+        float yoyo01 = Mathf.Clamp01(1f - distFromBeat / (beatInterval * 0.5f));
+        float x = beatIndLeftPos.x + barWidth * yoyo01;
+        beatIndicatorCurrent.position = new Vector3(x, beatIndicatorCurrent.position.y, 5f);
+    }
+
+    // Repositions and resizes the 4 colored beat-zone squares to match the current toleranceDivisor.
+    // squareWorldWidth = (2 / toleranceDivisor) * barWidth, matching exactly 1 tolerance step each.
+    private void ResizeColorSquares()
+    {
+        if (perfectSquare == null || closeSquare == null || middleSquare == null || farSquare == null) return;
+
+        float squareWorldWidth = (2f / toleranceDivisor) * barWidth;
+        float rightEdge = beatIndLeftPos.x + barWidth;
+
+        RectTransform[] squares = { perfectSquare, closeSquare, middleSquare, farSquare };
+        for (int i = 0; i < squares.Length; i++)
         {
-            beatIndicatorCurrent.position = new Vector3(200 + beatIndLeftPos.x - beatIndicatorSpeed * tInd, beatIndicatorCurrent.position.y, 5);
+            float squareLocalWidth = squareWorldWidth / squares[i].lossyScale.x;
+            squares[i].SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, squareLocalWidth);
+            float posX = rightEdge - squareWorldWidth * (i + 0.5f);
+            squares[i].position = new Vector3(posX, squares[i].position.y, squares[i].position.z);
         }
-        else
-        {
-            beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x + beatIndicatorSpeed * (tInd - beatInterval / 2f), beatIndicatorCurrent.position.y, 5);
-        }
+    }
+
+    // Sets difficulty by changing toleranceDivisor and refreshing the indicator squares.
+    // Called by GameController before the game session starts; locked in once play begins.
+    public void SetDifficulty(float divisor)
+    {
+        toleranceDivisor = divisor;
+        ResizeColorSquares();
     }
 
     public void ResetBeatCounter()

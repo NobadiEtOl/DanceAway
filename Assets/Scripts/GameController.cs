@@ -20,6 +20,13 @@ namespace Common.Enums
         FarBeat,
         OffBeat
     }
+
+    public enum Difficulty
+    {
+        Easy,
+        Normal,
+        Hard
+    }
 }
 
 
@@ -59,12 +66,39 @@ public class GameController : MonoBehaviour
     public bool introRunning = true;
     [SerializeField]private GameObject startScreen;
     [SerializeField]private GameObject settingScreen;
+    [SerializeField]private GameObject settingsButtonsContainer;
     [SerializeField]private GameObject healthBar;
     [SerializeField]private GameObject scoreObj;
     [SerializeField]private Text endScore;
     [SerializeField]private Text endLevelText; 
     [SerializeField] private Slider volumeSlider;
     [SerializeField] private AudioMixer audioMixer;
+    
+    // Difficulty System
+    [SerializeField] private float easyTolerance   = 12f;
+    [SerializeField] private float normalTolerance  = 20f;
+    [SerializeField] private float hardTolerance    = 35f;
+    [SerializeField] private UnityEngine.UI.Button easyButton;
+    [SerializeField] private UnityEngine.UI.Button normalButton;
+    [SerializeField] private UnityEngine.UI.Button hardButton;
+    [SerializeField] private UnityEngine.UI.Button retryButton;
+    private Difficulty currentDifficulty = Difficulty.Easy;
+    private bool difficultyLocked = false;
+
+    // Difficulty Unlock Progression
+    [SerializeField] private int normalUnlockLevel = 30; // Easy level required to unlock Normal
+    [SerializeField] private int hardUnlockLevel   = 30; // Normal level required to unlock Hard
+    [SerializeField] private GameObject normalLockIcon; // "Lock" child of the Normal button
+    [SerializeField] private GameObject hardLockIcon;   // "Lock" child of the Hard button
+    private bool normalUnlocked = false;
+    private bool hardUnlocked   = false;
+    [SerializeField] private int performanceThresholdHand1 = 75;      // Below this, hand beat 1 removed
+    [SerializeField] private int performanceThresholdHand2 = 130;     // Below this, hand beat 2 removed
+    [SerializeField] private int performanceThresholdDrums = 50;      // Below this, drum layers removed
+    private bool[] activeAudioLayers = new bool[6];                   // Track which layers are currently playing
+    private int lastRecordedPerformance = 0;                           // Track last known performance level
+    private bool dynamicMusicActive = false;                          // Only apply dynamic adjustments after game starts
+
     public void StartHandleBeatCor()
     {
         canStart = true;
@@ -74,6 +108,14 @@ public class GameController : MonoBehaviour
         healthBar.SetActive(true);
         startScreen.SetActive(false);
         if(!beatTimer.begin)beatTimer.begin=true;
+        player.EnableBeatStateText();
+        InitializeDynamicMusic(); // Reset layer tracking
+        // Pre-seed avarage so the first scored cycle starts at max (200)
+        avarage = 200 * 16;
+        lockAvarageAtMax = false;  // Allow avarage to change from now on
+        dynamicMusicActive = true; // Dynamic music now responds to performance
+        difficultyLocked = true;   // Lock difficulty for the rest of this session
+        RefreshCameraForGameplay();
     }
 
     public void BeatTimerBegin()
@@ -107,13 +149,27 @@ public class GameController : MonoBehaviour
         settingScreen.SetActive(false);
         endScreen.SetActive(false);        
 
-        gridController.ResetGridBounds();
-
         crowdController.GetCrowdParents();
+        crowdController.MaxNodders(); // Match max-average lock: all layers playing, all crowd nodding
+
+        // Load and apply saved difficulty (default: Easy on first launch)
+        Difficulty saved = (Difficulty)PlayerPrefs.GetInt("Difficulty", (int)Difficulty.Easy);
+
+        // Load unlock flags before applying difficulty so the safety fallback works
+        normalUnlocked = PlayerPrefs.GetInt("NormalUnlocked", 0) == 1;
+        hardUnlocked   = PlayerPrefs.GetInt("HardUnlocked",   0) == 1;
+
+        // Safety fallback: don't start on a mode that isn't unlocked
+        if (saved == Difficulty.Hard   && !hardUnlocked)   saved = Difficulty.Easy;
+        if (saved == Difficulty.Normal && !normalUnlocked) saved = Difficulty.Easy;
+
+        ApplyDifficulty(saved);
+        UpdateLockIcons();
 
         // Guarded: IntroSequenceController will call these after the intro walk finishes.
         if (!introRunning)
         {
+            gridController.ResetGridBounds();
             crowdController.ResizeCrowd();
             StartGame();
         }
@@ -134,6 +190,9 @@ public class GameController : MonoBehaviour
         gridController.InitializeGrid();
     }
     public bool canSpawn = true;
+    private bool perfectBeatTileColorsActive = false;
+    private readonly Color perfectBeatTileColor = Color.HSVToRGB(0.33f, 0.65f, 1f);
+
     void HandleBeat()// Handles all the checks happening once per beat
     {
 
@@ -223,54 +282,164 @@ public class GameController : MonoBehaviour
     }
 
     public int avarage=0;// To keep track of how good the player is doing
+    /// <summary>When true, avarage is locked at max (200) so all music layers play — active from Click to Begin until Start is pressed.</summary>
+    public bool lockAvarageAtMax = true;
+    
+    /// <summary>Initializes the dynamic music system by playing all audio layers at full power.</summary>
+    private void InitializeDynamicMusic()
+    {
+        // Start with all layers active
+        for (int i = 0; i < 6; i++)
+        {
+            activeAudioLayers[i] = true;
+        }
+        lastRecordedPerformance = 100; // Start at max performance assumption
+        dynamicMusicActive = false;     // Don't calculate adjustments yet—wait until game truly starts
+    }
+
     public void PlayHandScheduled(double dspTime)
     {   
-        avarage=avarage/16;
+        avarage = avarage / 16;
+
+        // Keep avarage at max while locked (pre-game practice)
+        if (lockAvarageAtMax) avarage = 200;
+        
+        // Track performance, but only apply dynamic adjustments after game starts
+        if (dynamicMusicActive)
+        {
+            lastRecordedPerformance = avarage;
+        }
     
-        // Plays different hands(beats) according to both the avarage of the player and the current level no.
-        if(avarage<75)
+        // Always play back beat (foundation layer)
+        audioSources[0].volume = 0.6f;
+        audioSources[0].PlayScheduled(dspTime);
+        
+        // Hand beat 1: Active by default, removed if performance drops (only if dynamic music is active)
+        if (!dynamicMusicActive || avarage >= performanceThresholdHand1)
         {
-            audioSources[1].Stop();
-        }
-        if(avarage<130)
-        {
-            audioSources[2].Stop();
-        }
-        if(avarage>=75)
-        {
+            if (!activeAudioLayers[1])
+            {
+                activeAudioLayers[1] = true;
+                crowdController.MoreNodders(20);
+            }
             audioSources[1].volume = 0.3f;
             audioSources[1].PlayScheduled(dspTime);
-            crowdController.MoreNodders(20);
         }
-        if(avarage>=130)
+        else
         {
-            audioSources[2].volume = 0.5f;
-            audioSources[2].PlayScheduled(dspTime);
-            crowdController.MoreNodders(50);
+            if (activeAudioLayers[1])
+            {
+                activeAudioLayers[1] = false; // Layer removed due to poor performance
+            }
+            audioSources[1].Stop();
         }
         
-        if(levelNo>=30)
+        // Hand beat 2: Active by default, removed if performance drops significantly (only if dynamic music is active)
+        if (!dynamicMusicActive || avarage >= performanceThresholdHand2)
         {
-            audioSources[5].volume = 0.5f;
-            audioSources[5].PlayScheduled(dspTime);
+            if (!activeAudioLayers[2])
+            {
+                activeAudioLayers[2] = true;
+                crowdController.MoreNodders(50);
+            }
+            audioSources[2].volume = 0.5f;
+            audioSources[2].PlayScheduled(dspTime);
         }
-        else if(levelNo>=20)
+        else
         {
-            audioSources[4].volume = 0.4f;
-            audioSources[4].PlayScheduled(dspTime);
+            if (activeAudioLayers[2])
+            {
+                activeAudioLayers[2] = false; // Layer removed due to poor performance
+            }
+            audioSources[2].Stop();
         }
-        else if(levelNo>=10)
+        
+        // Level-based drum layers: Start at full power, remove if performance is terrible (only if dynamic music is active)
+        if (levelNo >= 30)
         {
-            audioSources[3].volume = 0.5f;
-            audioSources[3].PlayScheduled(dspTime);
-        } 
-        avarage=0;
+            if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
+            {
+                if (!activeAudioLayers[5])
+                {
+                    activeAudioLayers[5] = true;
+                }
+                audioSources[5].volume = 0.5f;
+                audioSources[5].PlayScheduled(dspTime);
+            }
+            else
+            {
+                if (activeAudioLayers[5])
+                {
+                    activeAudioLayers[5] = false;
+                }
+                audioSources[5].Stop();
+            }
+        }
+        else if (levelNo >= 20)
+        {
+            if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
+            {
+                if (!activeAudioLayers[4])
+                {
+                    activeAudioLayers[4] = true;
+                }
+                audioSources[4].volume = 0.4f;
+                audioSources[4].PlayScheduled(dspTime);
+            }
+            else
+            {
+                if (activeAudioLayers[4])
+                {
+                    activeAudioLayers[4] = false;
+                }
+                audioSources[4].Stop();
+            }
+        }
+        else if (levelNo >= 10)
+        {
+            if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
+            {
+                if (!activeAudioLayers[3])
+                {
+                    activeAudioLayers[3] = true;
+                }
+                audioSources[3].volume = 0.5f;
+                audioSources[3].PlayScheduled(dspTime);
+            }
+            else
+            {
+                if (activeAudioLayers[3])
+                {
+                    activeAudioLayers[3] = false;
+                }
+                audioSources[3].Stop();
+            }
+        }
+        
+        avarage = 0;
     }
 
     public void PlayBackScheduled(double dspTime)
     {
         audioSources[0].volume = 0.6f;
         audioSources[0].PlayScheduled(dspTime);
+    }
+
+    /// <summary>Gets the number of active audio layers currently playing.</summary>
+    public int GetActiveAudioLayerCount()
+    {
+        int count = 0;
+        for (int i = 0; i < activeAudioLayers.Length; i++)
+        {
+            if (activeAudioLayers[i]) count++;
+        }
+        return count;
+    }
+
+    /// <summary>Gets the current performance/average score.</summary>
+    public int GetCurrentPerformance()
+    {
+        return lastRecordedPerformance;
     }
 
     public void LessNodders(int no)
@@ -291,6 +460,40 @@ public class GameController : MonoBehaviour
             {
                 grid[x,y].GetComponent<SpriteRenderer>().color =  GetRandomColor();
             }
+        }
+    }
+
+    private void SetAllTileColors(Color color)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                grid[x, y].GetComponent<SpriteRenderer>().color = color;
+            }
+        }
+    }
+
+    private void UpdatePerfectBeatTileColors()
+    {
+        if (beatTimer == null) return;
+
+        bool isPerfectBeat = beatTimer.state == BeatState.PerfectBeat;
+
+        if (isPerfectBeat)
+        {
+            if (!perfectBeatTileColorsActive)
+            {
+                SetAllTileColors(perfectBeatTileColor);
+                perfectBeatTileColorsActive = true;
+            }
+            return;
+        }
+
+        if (perfectBeatTileColorsActive)
+        {
+            perfectBeatTileColorsActive = false;
+            SwitchColor();
         }
     }
     
@@ -361,17 +564,44 @@ public class GameController : MonoBehaviour
 
     private float screenAspect;
     private float arenaWidth;
+    [SerializeField] private float visibleCrowdTiles = 0f;
+    /// <summary>Fraction of orthographic half-height to shift the camera downward once gameplay begins.
+    /// 0 = centred on the arena. 0.2 = shift down 20% of the ortho size, giving more space at the bottom
+    /// for player input. Device-independent.</summary>
+    [SerializeField] public float gameplayCameraVerticalOffsetFraction = 0f;
+
+    /// <summary>Calculates the orthographic size needed to frame the active arena bounds
+    /// plus <see cref="visibleCrowdTiles"/> rows of crowd on each side. Device-independent.
+    /// screenAspect must already be set (it is, from CenterCamera which runs in Start).</summary>
+    public float CalculateOrthoSizeForBounds(int minX, int maxX)
+    {
+        return ((maxX - minX) / 2f + visibleCrowdTiles) * tileSize / screenAspect;
+    }
+
     void CenterCamera()
     {
-        //Centers the camera to have same positioning ratios in different devices
+        // Initial camera placement at Start() — grid bounds are not set yet so just
+        // center neutrally and capture screenAspect. RefreshCameraForGameplay() applies
+        // the gameplay offset and correct ortho size once start is pressed.
         float centerX = (width * tileSize - tileSize) / 2.0f;
-
-        float yScreenPosition = Screen.height * 0.6f;
-        Vector3 worldPosition = Camera.main.ScreenToWorldPoint(new Vector3(0, yScreenPosition, Camera.main.nearClipPlane));
-
-        Camera.main.transform.position = new Vector3(centerX, worldPosition.y, Camera.main.transform.position.z);
+        float centerY = (height * tileSize - tileSize) / 2.0f;
         screenAspect = (float)Screen.width / (float)Screen.height;
-        arenaWidth = width*height;
+        arenaWidth = width * height;
+        Camera.main.transform.position = new Vector3(centerX, centerY, Camera.main.transform.position.z);
+    }
+
+    /// <summary>Called when the player presses Start. Recalculates screenAspect,
+    /// derives the correct ortho size from live gridBounds, snaps the camera
+    /// to the gameplay-offset position, and lerps to the target size.</summary>
+    public void RefreshCameraForGameplay()
+    {
+        screenAspect = (float)Screen.width / (float)Screen.height;
+        float targetOrtho = CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1]);
+        float centerX = (width * tileSize - tileSize) / 2.0f;
+        float centerY = (height * tileSize - tileSize) / 2.0f;
+        float downwardShift = targetOrtho * gameplayCameraVerticalOffsetFraction;
+        Camera.main.transform.position = new Vector3(centerX, centerY - downwardShift, Camera.main.transform.position.z);
+        StartCoroutine(ChangeCameraOrthoSize(targetOrtho));
     }
 
 
@@ -382,7 +612,7 @@ public class GameController : MonoBehaviour
     {
         float timePassed = 0;
         float initialSize = Camera.main.orthographicSize;
-        float targetSize = arenaWidth / (f*screenAspect);
+        float targetSize = f;
 
         while (timePassed < cameraTransitionDuration)
         {
@@ -391,7 +621,7 @@ public class GameController : MonoBehaviour
             yield return null;
         }
 
-        //Camera.main.orthographicSize = targetSize;
+        Camera.main.orthographicSize = targetSize;
     }
     public IEnumerator ChangeCameraOrthoSize(int i)
     {
@@ -416,6 +646,7 @@ public class GameController : MonoBehaviour
         totalTrianglesToSpawn = levelNo;
         trianglesSpawned = 0;
         isSpawningEnemies = true;
+        dynamicMusicActive = true; // NOW start calculating dynamic music adjustments
         enemySpawner.SpawnRemainingEnemies(); // Ensure enemies are spawned when the game starts
     }
 
@@ -446,8 +677,11 @@ public class GameController : MonoBehaviour
 
     [SerializeField]private bool resizeFlag=false;
     [SerializeField]public bool gridBoundsFlag=false;
+    private bool tutorialWindowOpen = false;
     void Update()
     {
+        UpdatePerfectBeatTileColors();
+
         if (currentState == GameState.Play && !introRunning)
         {
             player.HandleInput();
@@ -519,9 +753,42 @@ public class GameController : MonoBehaviour
     
     public void OpenEndScreen()
     {
+        SaveRunProgress();
         endScore.text = player.score.ToString();
         endLevelText.text = "Level " + levelNo.ToString();
         endScreen.SetActive(true);
+    }
+
+    private void SaveRunProgress()
+    {
+        string diffKey = currentDifficulty.ToString();
+
+        // Persist max level reached on this difficulty
+        int savedMaxLevel = PlayerPrefs.GetInt("MaxLevel_" + diffKey, 0);
+        if (levelNo > savedMaxLevel)
+            PlayerPrefs.SetInt("MaxLevel_" + diffKey, levelNo);
+
+        // Persist max score reached on this difficulty
+        int savedMaxScore = PlayerPrefs.GetInt("MaxScore_" + diffKey, 0);
+        if (player.score > savedMaxScore)
+            PlayerPrefs.SetInt("MaxScore_" + diffKey, player.score);
+
+        // Check unlock conditions
+        if (!normalUnlocked && currentDifficulty == Difficulty.Easy && levelNo >= normalUnlockLevel)
+        {
+            normalUnlocked = true;
+            PlayerPrefs.SetInt("NormalUnlocked", 1);
+        }
+
+        if (!hardUnlocked && currentDifficulty == Difficulty.Normal && levelNo >= hardUnlockLevel)
+        {
+            hardUnlocked = true;
+            PlayerPrefs.SetInt("HardUnlocked", 1);
+        }
+
+        PlayerPrefs.Save();
+        UpdateLockIcons();
+        UpdateDifficultyButtonVisuals();
     }
 
     public List<int> ReturnGridbounds()
@@ -537,11 +804,40 @@ public class GameController : MonoBehaviour
     public void  OpenSettingScreen()
     {
         settingScreen.SetActive(true);
+        SetSettingsButtonsVisible(false);
+        if (retryButton != null) retryButton.gameObject.SetActive(canStart);
     }
 
     public void CloseSettingScreen()
     {
         settingScreen.SetActive(false);
+        if (!tutorialWindowOpen)
+        {
+            SetSettingsButtonsVisible(true);
+        }
+    }
+
+    public void OnTutorialWindowOpened()
+    {
+        tutorialWindowOpen = true;
+        SetSettingsButtonsVisible(false);
+    }
+
+    public void OnTutorialWindowClosed()
+    {
+        tutorialWindowOpen = false;
+        if (settingScreen == null || !settingScreen.activeSelf)
+        {
+            SetSettingsButtonsVisible(true);
+        }
+    }
+
+    private void SetSettingsButtonsVisible(bool isVisible)
+    {
+        if (settingsButtonsContainer != null)
+        {
+            settingsButtonsContainer.SetActive(isVisible);
+        }
     }
     private void AdjustVolume(float volume)
     {
@@ -553,6 +849,38 @@ public class GameController : MonoBehaviour
     public float SendBeatInterval()
     {
         return beatTimer.beatInterval;
+    }
+
+    // --- Difficulty ---
+
+    public void SetDifficultyEasy()   { if (!difficultyLocked) ApplyDifficulty(Difficulty.Easy); }
+    public void SetDifficultyNormal() { if (!difficultyLocked && normalUnlocked) ApplyDifficulty(Difficulty.Normal); }
+    public void SetDifficultyHard()   { if (!difficultyLocked && hardUnlocked)   ApplyDifficulty(Difficulty.Hard); }
+
+    private void ApplyDifficulty(Difficulty d)
+    {
+        currentDifficulty = d;
+        float divisor = d == Difficulty.Easy ? easyTolerance
+                      : d == Difficulty.Hard  ? hardTolerance
+                      : normalTolerance;
+        beatTimer.SetDifficulty(divisor);
+        PlayerPrefs.SetInt("Difficulty", (int)d);
+        PlayerPrefs.Save();
+        UpdateDifficultyButtonVisuals();
+    }
+
+    private void UpdateDifficultyButtonVisuals()
+    {
+        if (easyButton   != null) easyButton.interactable   = currentDifficulty != Difficulty.Easy;
+        if (normalButton != null) normalButton.interactable = currentDifficulty != Difficulty.Normal;
+        if (hardButton   != null) hardButton.interactable   = currentDifficulty != Difficulty.Hard;
+        UpdateLockIcons();
+    }
+
+    private void UpdateLockIcons()
+    {
+        if (normalLockIcon != null) normalLockIcon.SetActive(!normalUnlocked);
+        if (hardLockIcon   != null) hardLockIcon.SetActive(!hardUnlocked);
     }
 
 

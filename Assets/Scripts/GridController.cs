@@ -63,7 +63,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 9; 
             gridBounds[2] = 0; 
             gridBounds[3] = 9;
-            StartCoroutine(gc.ChangeCameraOrthoSize(60));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
         else if(gc.enemies.Count > 18)
         {
@@ -71,7 +71,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 8; 
             gridBounds[2] = 1; 
             gridBounds[3] = 8;
-            StartCoroutine(gc.ChangeCameraOrthoSize(50));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
         else if(gc.enemies.Count > 3)
@@ -81,7 +81,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 7; 
             gridBounds[2] = 2; 
             gridBounds[3] = 7;
-            StartCoroutine(gc.ChangeCameraOrthoSize(35));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
         
         else if(gc.enemies.Count > 0)
@@ -90,7 +90,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 6; 
             gridBounds[2] = 3; 
             gridBounds[3] = 6;
-            StartCoroutine(gc.ChangeCameraOrthoSize(22));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
 
@@ -139,7 +139,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 9; 
             gridBounds[2] = 0; 
             gridBounds[3] = 9;
-            StartCoroutine(gc.ChangeCameraOrthoSize(60));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
         else if(gc.levelNo > 18)
@@ -148,7 +148,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 8; 
             gridBounds[2] = 1; 
             gridBounds[3] = 8;
-            StartCoroutine(gc.ChangeCameraOrthoSize(50));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
         else if(gc.levelNo > 3)
@@ -158,7 +158,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 7; 
             gridBounds[2] = 2; 
             gridBounds[3] = 7;
-            StartCoroutine(gc.ChangeCameraOrthoSize(35));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
         else if(gc.levelNo > 0)
@@ -167,7 +167,7 @@ public class GridController : MonoBehaviour
             gridBounds[1] = 6; 
             gridBounds[2] = 3; 
             gridBounds[3] = 6;
-            StartCoroutine(gc.ChangeCameraOrthoSize(22));
+            StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
         gc.player.ChangeGridBounds();

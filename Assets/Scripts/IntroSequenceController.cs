@@ -36,12 +36,6 @@ public class IntroSequenceController : MonoBehaviour
     [SerializeField] private BeatTimer beatTimer;
 
     [Header("Intro Settings")]
-    [Tooltip("Orthographic size at the very start of the intro (zoomed in on the player). Zooms out to the scene default over the walk.")]
-    [SerializeField] private float introOrthoSize = 20f;
-
-    [Tooltip("How many world units below its game-start position the bottom crowd parent begins.")]
-    [SerializeField] private float crowdIntroOffset = 80f;
-
     [Tooltip("World units per second the bottom crowd moves toward the player. Should be faster than the player's tile-per-beat speed so it visually catches up.")]
     [SerializeField] private float crowdChaseSpeed = 25f;
 
@@ -65,15 +59,32 @@ public class IntroSequenceController : MonoBehaviour
     // RUNTIME STATE
     // =========================================================================
 
-    // Final (game-start) positions captured from the already-initialised components.
-    private Vector3    _finalPlayerPos;
-    private Vector2Int _finalPlayerGridPos;
-    private Vector3    _finalCameraPos;
-    private float      _finalCameraOrthoSize;
-    private Vector3    _finalBottomCrowdPos;
+    // Final (game-ready collapsed) targets captured/computed at startup.
+    private Vector3    _targetPlayerPos;
+    private Vector2Int _targetPlayerGridPos;
+    private Vector3    _targetCameraPos;
+    private float      _targetCameraOrthoSize;
+    private Vector3    _targetLeftCrowdPos;
+    private Vector3    _targetRightCrowdPos;
+    private Vector3    _targetBottomCrowdPos;
+    private Vector3    _targetTopCrowdPos;
+
+    // Collapsed gameplay bounds used after intro and for target computation.
+    private int _targetMinX;
+    private int _targetMaxX;
+    private int _targetMinY;
+    private int _targetMaxY;
 
     // Intro positions (computed, no scene empties required).
     private Vector3 _bottomCrowdIntroStartPos;
+    private int _roadGridX;
+
+    // Per-side crowd speeds derived from intro duration so each side
+    // arrives at its collapsed target exactly when the player does.
+    private float _leftCrowdIntroSpeed;
+    private float _rightCrowdIntroSpeed;
+    private float _bottomCrowdIntroSpeed;
+    private float _topCrowdIntroSpeed;
 
     private List<GameObject> _roadTiles = new List<GameObject>();
     private int  _totalBeats;      // random 8-16
@@ -82,6 +93,7 @@ public class IntroSequenceController : MonoBehaviour
     private Action _onDone;        // callback to reveal start screen
 
     private Rigidbody2D _playerRb;
+    private float _introStartCameraOrthoSize;
 
     // =========================================================================
     // UNITY LIFECYCLE
@@ -90,17 +102,33 @@ public class IntroSequenceController : MonoBehaviour
     void Start()
     {
         _playerRb = player.GetComponent<Rigidbody2D>();
+        _introStartCameraOrthoSize = cam.orthographicSize; // Respect the camera size configured in-scene as intro start.
         _totalBeats = UnityEngine.Random.Range(8, 17); // 8-16 inclusive
 
         // ------------------------------------------------------------------
-        // 1. Capture game-start (final) positions.
+        // 1. Compute game-ready collapsed targets.
         //    GameController.Start() has already run and placed every actor.
         // ------------------------------------------------------------------
-        _finalPlayerPos       = player.transform.position;
-        _finalPlayerGridPos   = player.position;
-        _finalCameraPos       = cam.transform.position;
-        _finalCameraOrthoSize = cam.orthographicSize;
-        _finalBottomCrowdPos  = crowdController.crowdParentBottom.transform.position;
+        ComputeCollapsedTargets();
+        ApplyCollapsedGridBounds();
+        _roadGridX = _targetPlayerGridPos.x; // same column as the player target
+
+        // ------------------------------------------------------------------
+        // Derive per-side crowd speeds so every side finishes moving at the
+        // same time the player completes the walk.
+        //   introDuration = total steps × beat interval
+        //   speed         = distance to travel / introDuration
+        // ------------------------------------------------------------------
+        float beatInterval   = gameController.SendBeatInterval();
+        float introDuration  = _totalBeats * beatInterval;
+        float ts             = gameController.tileSize;
+        int   xInset         = gameController.width  - _targetMaxX;
+        int   yInset         = gameController.height - _targetMaxY;
+
+        _leftCrowdIntroSpeed   = (xInset * ts)       / introDuration;
+        _rightCrowdIntroSpeed  = (xInset * ts)       / introDuration;
+        _topCrowdIntroSpeed    = (yInset * ts)       / introDuration;
+        // Bottom speed is computed after _bottomCrowdIntroStartPos is set (below).
 
         if (skipIntro)
             return; // Actors stay at game-start positions; OnLoadingComplete handles the rest.
@@ -112,12 +140,24 @@ public class IntroSequenceController : MonoBehaviour
         float tileSize = gameController.tileSize;
 
         Vector3 playerIntroStart = new Vector3(
-            _finalPlayerPos.x,
-            _finalPlayerPos.y - _totalBeats * tileSize,
-            _finalPlayerPos.z
+            _targetPlayerPos.x,
+            _targetPlayerPos.y - _totalBeats * tileSize,
+            _targetPlayerPos.z
         );
 
-        _bottomCrowdIntroStartPos = _finalBottomCrowdPos + Vector3.down * crowdIntroOffset;
+        // Compute initYOffset here so it can be shared by the crowd start pos and the camera teleport.
+        float initYOffset = _introStartCameraOrthoSize * introCameraVerticalOffsetFraction;
+
+        // Bottom crowd starts just below the camera's bottom screen edge at intro start,
+        // so it is invisible and travels on-screen as the player walks in.
+        float screenBottomY = playerIntroStart.y - initYOffset - _introStartCameraOrthoSize;
+        _bottomCrowdIntroStartPos = new Vector3(
+            _targetBottomCrowdPos.x,
+            screenBottomY - tileSize, // one tile below the screen edge so it enters smoothly
+            _targetBottomCrowdPos.z
+        );
+        // Speed = total distance the crowd must travel / intro duration.
+        _bottomCrowdIntroSpeed = (_targetBottomCrowdPos.y - _bottomCrowdIntroStartPos.y) / introDuration;
 
         // ------------------------------------------------------------------
         // 3. Teleport actors before the first frame renders — no visible pop.
@@ -125,13 +165,11 @@ public class IntroSequenceController : MonoBehaviour
         player.transform.position = playerIntroStart;
         _playerRb.position        = playerIntroStart;
         player.position           = new Vector2Int(
-            _finalPlayerGridPos.x,
-            _finalPlayerGridPos.y - _totalBeats
+            _targetPlayerGridPos.x,
+            _targetPlayerGridPos.y - _totalBeats
         );
 
-        float initYOffset = introOrthoSize * introCameraVerticalOffsetFraction;
-        cam.transform.position = new Vector3(playerIntroStart.x, playerIntroStart.y - initYOffset, _finalCameraPos.z);
-        cam.orthographicSize   = introOrthoSize;
+        cam.transform.position = new Vector3(playerIntroStart.x, playerIntroStart.y - initYOffset, _targetCameraPos.z);
 
         crowdController.crowdParentBottom.transform.position = _bottomCrowdIntroStartPos;
 
@@ -159,7 +197,7 @@ public class IntroSequenceController : MonoBehaviour
         Vector3 followTarget = new Vector3(
             player.transform.position.x,
             player.transform.position.y - yOffset,
-            _finalCameraPos.z
+            _targetCameraPos.z
         );
         cam.transform.position = Vector3.Lerp(
             cam.transform.position,
@@ -168,14 +206,32 @@ public class IntroSequenceController : MonoBehaviour
         );
 
         // Camera zooms out progressively toward the scene-default ortho size.
-        cam.orthographicSize = Mathf.Lerp(introOrthoSize, _finalCameraOrthoSize, t);
+        cam.orthographicSize = Mathf.Lerp(_introStartCameraOrthoSize, _targetCameraOrthoSize, t);
 
-        // Bottom crowd moves continuously at crowdChaseSpeed — independent of beat count.
-        // Faster than the player (~1 tile/beat) so it visually catches up from behind.
+        // All crowd sides move toward their collapsed targets, each at a speed
+        // calibrated so they all arrive exactly when the player reaches the centre.
         crowdController.crowdParentBottom.transform.position = Vector3.MoveTowards(
             crowdController.crowdParentBottom.transform.position,
-            _finalBottomCrowdPos,
-            crowdChaseSpeed * Time.deltaTime
+            _targetBottomCrowdPos,
+            _bottomCrowdIntroSpeed * Time.deltaTime
+        );
+
+        crowdController.crowdParentLeft.transform.position = Vector3.MoveTowards(
+            crowdController.crowdParentLeft.transform.position,
+            _targetLeftCrowdPos,
+            _leftCrowdIntroSpeed * Time.deltaTime
+        );
+
+        crowdController.crowdParentRight.transform.position = Vector3.MoveTowards(
+            crowdController.crowdParentRight.transform.position,
+            _targetRightCrowdPos,
+            _rightCrowdIntroSpeed * Time.deltaTime
+        );
+
+        crowdController.crowdParentTop.transform.position = Vector3.MoveTowards(
+            crowdController.crowdParentTop.transform.position,
+            _targetTopCrowdPos,
+            _topCrowdIntroSpeed * Time.deltaTime
         );
     }
 
@@ -200,6 +256,7 @@ public class IntroSequenceController : MonoBehaviour
         // skipIntro: no walk needed — start game immediately and reveal the start screen.
         if (skipIntro)
         {
+            ApplyCollapsedGameReadyStateInstant();
             gameController.introRunning = false;
             gameController.BeatTimerBegin();
             gameController.StartGame();
@@ -245,7 +302,10 @@ public class IntroSequenceController : MonoBehaviour
         Vector3 startPlayerPos      = player.transform.position;
         Vector3 startCamPos         = cam.transform.position;
         float   startOrthoSize      = cam.orthographicSize;
+        Vector3 startLeftCrowdPos   = crowdController.crowdParentLeft.transform.position;
+        Vector3 startRightCrowdPos  = crowdController.crowdParentRight.transform.position;
         Vector3 startBottomCrowdPos = crowdController.crowdParentBottom.transform.position;
+        Vector3 startTopCrowdPos    = crowdController.crowdParentTop.transform.position;
 
         float elapsed = 0f;
 
@@ -254,41 +314,40 @@ public class IntroSequenceController : MonoBehaviour
             float t = snapCurve.Evaluate(elapsed / finalTransitionDuration);
 
             // Player — drive both transform and Rigidbody2D so physics stays in sync.
-            Vector3 newPlayerPos = Vector3.Lerp(startPlayerPos, _finalPlayerPos, t);
+            Vector3 newPlayerPos = Vector3.Lerp(startPlayerPos, _targetPlayerPos, t);
             player.transform.position = newPlayerPos;
             _playerRb.position        = newPlayerPos;
 
             // Camera position and zoom.
-            cam.transform.position = Vector3.Lerp(startCamPos, _finalCameraPos, t);
-            cam.orthographicSize   = Mathf.Lerp(startOrthoSize, _finalCameraOrthoSize, t);
+            cam.transform.position = Vector3.Lerp(startCamPos, _targetCameraPos, t);
+            cam.orthographicSize   = Mathf.Lerp(startOrthoSize, _targetCameraOrthoSize, t);
 
-            // Bottom crowd.
-            crowdController.crowdParentBottom.transform.position = Vector3.Lerp(
-                startBottomCrowdPos, _finalBottomCrowdPos, t
-            );
+            // All crowd sides converge directly to collapsed game-ready targets.
+            crowdController.crowdParentLeft.transform.position = Vector3.Lerp(startLeftCrowdPos, _targetLeftCrowdPos, t);
+            crowdController.crowdParentRight.transform.position = Vector3.Lerp(startRightCrowdPos, _targetRightCrowdPos, t);
+            crowdController.crowdParentBottom.transform.position = Vector3.Lerp(startBottomCrowdPos, _targetBottomCrowdPos, t);
+            crowdController.crowdParentTop.transform.position = Vector3.Lerp(startTopCrowdPos, _targetTopCrowdPos, t);
 
             elapsed += Time.deltaTime;
             yield return null;
         }
 
         // Snap every actor to exact final values — no floating-point drift.
-        player.transform.position = _finalPlayerPos;
-        _playerRb.position        = _finalPlayerPos;
-        player.position           = _finalPlayerGridPos; // restore logical grid position
+        player.transform.position = _targetPlayerPos;
+        _playerRb.position        = _targetPlayerPos;
+        player.position           = _targetPlayerGridPos;
 
-        cam.transform.position = _finalCameraPos;
-        cam.orthographicSize   = _finalCameraOrthoSize;
+        cam.transform.position = _targetCameraPos;
+        cam.orthographicSize   = _targetCameraOrthoSize;
 
-        crowdController.crowdParentBottom.transform.position = _finalBottomCrowdPos;
+        crowdController.SetCrowdWorldPositions(
+            _targetLeftCrowdPos,
+            _targetRightCrowdPos,
+            _targetBottomCrowdPos,
+            _targetTopCrowdPos
+        );
 
-        // Close all 4 crowd sides to a 3×3 arena before the game starts.
-        // bound = gc.width - gridBounds[1] = 10 - 6 = 4 → each side moves 4 tiles inward.
-        GameController.gridBounds[0] = 2;
-        GameController.gridBounds[1] = gameController.width  - 3;
-        GameController.gridBounds[2] = 2;
-        GameController.gridBounds[3] = gameController.height - 3;
-        crowdController.ResizeCrowd();
-        yield return new WaitForSeconds(crowdController.cameraTransitionDuration);
+        ApplyCollapsedGridBounds();
 
         // Clean up road tiles.
         foreach (GameObject tile in _roadTiles)
@@ -310,7 +369,7 @@ public class IntroSequenceController : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Spawns a single-column road below the arena using the same tile prefab
+    /// Spawns a 3-tile-wide decorative road using the same tile prefab
     /// and checkerboard colouring as the disco floor.
     /// </summary>
     private void SpawnRoadTiles(float tileSize)
@@ -318,31 +377,106 @@ public class IntroSequenceController : MonoBehaviour
         GameObject roadParent = new GameObject("IntroRoad");
 
         // Road spans from the player's intro start row up to (but not including)
-        // the arena's bottom row (y = 0). The arena itself already provides tiles
-        // for y = 0 through y = (height-1).
-        int startGridY = _finalPlayerGridPos.y - _totalBeats;
-        int endGridY   = -1;
+        // the arena's bottom row (y = 0), and also extends by the same amount
+        // in the opposite direction for decoration.
+        int playerIntroStartGridY = _targetPlayerGridPos.y - _totalBeats;
+        int endGridY = -1;
+        int upwardLength = Mathf.Max(0, endGridY - playerIntroStartGridY);
+        int startGridY = playerIntroStartGridY - upwardLength;
 
+        // 3-tile road: center lane plus one extra column on each side.
         for (int gy = startGridY; gy <= endGridY; gy++)
         {
-            float worldX = _finalPlayerGridPos.x * tileSize;
-            float worldY = gy * tileSize;
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int gx = _roadGridX + dx;
+                float worldX = gx * tileSize;
+                float worldY = gy * tileSize;
 
-            GameObject tile = Instantiate(
-                gridController.tilePrefab,
-                new Vector3(worldX, worldY, 0f),
-                Quaternion.identity,
-                roadParent.transform
-            );
+                GameObject tile = Instantiate(
+                    gridController.tilePrefab,
+                    new Vector3(worldX, worldY, 0f),
+                    Quaternion.identity,
+                    roadParent.transform
+                );
 
-            tile.transform.localScale = new Vector3(tileSize, tileSize, 1f);
-            tile.name = $"RoadTile_{gy}";
+                tile.transform.localScale = new Vector3(tileSize, tileSize, 1f);
+                tile.name = $"RoadTile_{gx}_{gy}";
 
-            // Match the arena's checkerboard pattern.
-            if ((_finalPlayerGridPos.x + gy) % 2 == 1)
-                tile.GetComponent<SpriteRenderer>().color = Color.cyan;
+                // Match the arena's checkerboard pattern.
+                if ((gx + gy) % 2 == 1)
+                    tile.GetComponent<SpriteRenderer>().color = Color.cyan;
 
-            _roadTiles.Add(tile);
+                _roadTiles.Add(tile);
+            }
         }
+    }
+
+    private void ComputeCollapsedTargets()
+    {
+        float tileSize = gameController.tileSize;
+
+        // Keep the same arena intent as the previous intro end-state.
+        _targetMinX = 2;
+        _targetMaxX = gameController.width - 3;
+        _targetMinY = 2;
+        _targetMaxY = gameController.height - 3;
+
+        // Use the true center of the collapsed disco bounds so intro end-state
+        // lands exactly at arena center on both axes.
+        int centerX = Mathf.RoundToInt((_targetMinX + _targetMaxX) * 0.5f);
+        int centerY = Mathf.RoundToInt((_targetMinY + _targetMaxY) * 0.5f);
+        _targetPlayerGridPos = new Vector2Int(centerX, centerY);
+        _targetPlayerPos = new Vector3(centerX * tileSize, centerY * tileSize, player.transform.position.z);
+
+        _targetCameraOrthoSize = gameController.CalculateOrthoSizeForBounds(_targetMinX, _targetMaxX);
+        // Final intro camera target: arena centre shifted down by the gameplay offset fraction
+        // so the arena sits slightly above screen centre, leaving room at the bottom for input.
+        float downwardShift = _targetCameraOrthoSize * gameController.gameplayCameraVerticalOffsetFraction;
+        _targetCameraPos = new Vector3(
+            _targetPlayerPos.x,
+            _targetPlayerPos.y - downwardShift,
+            cam.transform.position.z
+        );
+
+        Vector3 baseLeftCrowdPos = crowdController.crowdParentLeft.transform.position;
+        Vector3 baseRightCrowdPos = crowdController.crowdParentRight.transform.position;
+        Vector3 baseBottomCrowdPos = crowdController.crowdParentBottom.transform.position;
+        Vector3 baseTopCrowdPos = crowdController.crowdParentTop.transform.position;
+
+        int xInsetTiles = gameController.width - _targetMaxX;
+        int yInsetTiles = gameController.height - _targetMaxY;
+        _targetLeftCrowdPos = baseLeftCrowdPos + Vector3.right * (xInsetTiles * tileSize);
+        _targetRightCrowdPos = baseRightCrowdPos + Vector3.left * (xInsetTiles * tileSize);
+        _targetBottomCrowdPos = baseBottomCrowdPos + Vector3.up * (yInsetTiles * tileSize);
+        _targetTopCrowdPos = baseTopCrowdPos + Vector3.down * (yInsetTiles * tileSize);
+    }
+
+    private void ApplyCollapsedGridBounds()
+    {
+        GameController.gridBounds[0] = _targetMinX;
+        GameController.gridBounds[1] = _targetMaxX;
+        GameController.gridBounds[2] = _targetMinY;
+        GameController.gridBounds[3] = _targetMaxY;
+        player.ChangeGridBounds();
+    }
+
+    private void ApplyCollapsedGameReadyStateInstant()
+    {
+        player.transform.position = _targetPlayerPos;
+        _playerRb.position = _targetPlayerPos;
+        player.position = _targetPlayerGridPos;
+
+        cam.transform.position = _targetCameraPos;
+        cam.orthographicSize = _targetCameraOrthoSize;
+
+        crowdController.SetCrowdWorldPositions(
+            _targetLeftCrowdPos,
+            _targetRightCrowdPos,
+            _targetBottomCrowdPos,
+            _targetTopCrowdPos
+        );
+
+        ApplyCollapsedGridBounds();
     }
 }

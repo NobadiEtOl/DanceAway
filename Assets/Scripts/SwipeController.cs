@@ -9,12 +9,25 @@ public class SwipeController : MonoBehaviour
     private bool isSwipe;
     
     [SerializeField] private float minSwipeDistance = 50f; // Minimum swipe distance in pixels
+    [SerializeField] private RectTransform swipeArea;
     private RectTransform swipeAreaRectTransform;
+    private Camera swipeEventCamera;
 
     void Start()
     {
-        // Get the RectTransform of the UI element where you want to detect swipes
-        swipeAreaRectTransform = GetComponent<RectTransform>();
+        // Use an explicitly assigned area if provided; otherwise use this object's RectTransform.
+        swipeAreaRectTransform = swipeArea != null ? swipeArea : GetComponent<RectTransform>();
+
+        Canvas parentCanvas = swipeAreaRectTransform != null ? swipeAreaRectTransform.GetComponentInParent<Canvas>() : null;
+        if (parentCanvas != null)
+        {
+            // Overlay canvases must use null camera for correct screen-point checks.
+            swipeEventCamera = parentCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : parentCanvas.worldCamera;
+        }
+        else
+        {
+            swipeEventCamera = Camera.main;
+        }
     }
 
     void Update()
@@ -32,7 +45,7 @@ public class SwipeController : MonoBehaviour
             {
                 case TouchPhase.Began:
                     // Check if the touch started within the swipe area (UI RectTransform)
-                    if (RectTransformUtility.RectangleContainsScreenPoint(swipeAreaRectTransform, touch.position, Camera.main))
+                    if (IsWithinSwipeArea(touch.position))
                     {
                         startTouchPosition = touch.position;
                         isSwipe = true;
@@ -46,16 +59,56 @@ public class SwipeController : MonoBehaviour
                         if (Vector2.Distance(startTouchPosition, endTouchPosition) >= minSwipeDistance)
                         {
                             DetectSwipeDirection();
+                            isSwipe = false;
                         }
-                        isSwipe = false; // Reset the swipe flag
                     }
                     break;
 
                 case TouchPhase.Ended:
-                    
+                case TouchPhase.Canceled:
+                    isSwipe = false;
                     break;
             }
+
+            return;
         }
+
+        DetectMouseSwipe();
+    }
+
+    private void DetectMouseSwipe()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (IsWithinSwipeArea(Input.mousePosition))
+            {
+                startTouchPosition = Input.mousePosition;
+                isSwipe = true;
+            }
+        }
+        else if (Input.GetMouseButton(0) && isSwipe)
+        {
+            endTouchPosition = Input.mousePosition;
+            if (Vector2.Distance(startTouchPosition, endTouchPosition) >= minSwipeDistance)
+            {
+                DetectSwipeDirection();
+                isSwipe = false;
+            }
+        }
+        else if (Input.GetMouseButtonUp(0))
+        {
+            isSwipe = false;
+        }
+    }
+
+    private bool IsWithinSwipeArea(Vector2 screenPosition)
+    {
+        if (swipeAreaRectTransform == null)
+        {
+            return true;
+        }
+
+        return RectTransformUtility.RectangleContainsScreenPoint(swipeAreaRectTransform, screenPosition, swipeEventCamera);
     }
 
     private void DetectSwipeDirection()

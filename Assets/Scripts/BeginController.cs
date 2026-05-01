@@ -13,7 +13,7 @@ public class BeginController : MonoBehaviour
     [SerializeField]private float loadTime=15;
     private float beginTimer;
     private bool isClicked;
-    [SerializeField]private Slider loadSlider;
+    [SerializeField]private Text loadingText;
     [SerializeField]private GameObject danceAway;
     [SerializeField]private GameObject startButton;
     [SerializeField]private GameObject tutorialButton;
@@ -21,6 +21,8 @@ public class BeginController : MonoBehaviour
     [SerializeField]private IntroSequenceController introSequenceController;
     private static bool alreadyStarted = false;
     private bool _gameReadyCalled;
+    private readonly string[] _loadingStates = { "YÜKLENİYOR", "YÜKLENİYOR.", "YÜKLENİYOR..", "YÜKLENİYOR..." };
+    private const float LoadingTextStepDuration = 0.35f;
     // Start is called before the first frame update
     void Start()
     {
@@ -31,7 +33,11 @@ public class BeginController : MonoBehaviour
         danceAway.SetActive(false);
         startButton.SetActive(false);
         tutorialButton.SetActive(false);
-        loadSlider.gameObject.SetActive(false);
+        if (loadingText != null)
+        {
+            loadingText.gameObject.SetActive(true);
+            loadingText.text = "DANS ET";
+        }
     }
 
     [SerializeField]private bool readyToPlay=false;
@@ -46,17 +52,24 @@ public class BeginController : MonoBehaviour
         {
             alreadyStarted=true;
             _gameReadyCalled = true;
-            clickToBegin.SetActive(false);
             GameReady();
         }
         else
         {
-            loadSlider.value = beginTimer/loadTime;
             Color color = Color.black;
             color.a = 1-beginTimer/loadTime;
             background.color = color;
+            UpdateLoadingText();
         }
 
+    }
+
+    private void UpdateLoadingText()
+    {
+        if (!isClicked || loadingText == null) return;
+
+        int loadingStateIndex = Mathf.FloorToInt(beginTimer / LoadingTextStepDuration) % _loadingStates.Length;
+        loadingText.text = _loadingStates[loadingStateIndex];
     }
 
     // Coroutine to load audio clips from Resources folder asynchronously
@@ -79,16 +92,22 @@ public class BeginController : MonoBehaviour
     // Function to start the game when preloading is complete
     public void BeginGame()
     {
-        loadSlider.gameObject.SetActive(true);
         isClicked=true;
         danceAway.SetActive(true);
-        clickToBegin.SetActive(false);
+        if (loadingText != null)
+        {
+            loadingText.gameObject.SetActive(true);
+            loadingText.text = _loadingStates[0];
+        }
     }
 
     private void GameReady()
     {
         danceAway.SetActive(true);
-        loadSlider.gameObject.SetActive(false);
+        if (loadingText != null)
+        {
+            loadingText.gameObject.SetActive(true);
+        }
 
         if (introSequenceController != null)
         {
@@ -105,6 +124,7 @@ public class BeginController : MonoBehaviour
 
     private void ShowStartScreen()
     {
+        clickToBegin.SetActive(false);
         startButton.SetActive(true);
         tutorialButton.SetActive(true);
     }

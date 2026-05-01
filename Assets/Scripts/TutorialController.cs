@@ -4,6 +4,7 @@ using UnityEngine;
 
 public class TutorialController : MonoBehaviour
 {
+    [SerializeField]private GameController gameController;
     [SerializeField]private GameObject tutorialScreen;
     [SerializeField]private GameObject firstPage;
     [SerializeField]private GameObject secondPage;
@@ -14,7 +15,14 @@ public class TutorialController : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        
+        if (gameController == null)
+        {
+            GameObject controller = GameObject.Find("GameController");
+            if (controller != null)
+            {
+                gameController = controller.GetComponent<GameController>();
+            }
+        }
     }
 
     // Update is called once per frame
@@ -28,6 +36,10 @@ public class TutorialController : MonoBehaviour
         print("openfirst");
         CloseStartScreen();
         tutorialScreen.SetActive(true);
+        if (gameController != null)
+        {
+            gameController.OnTutorialWindowOpened();
+        }
         firstPage.SetActive(true);
         secondPage.SetActive(false);
         thirdPage.SetActive(false);
@@ -69,5 +81,9 @@ public class TutorialController : MonoBehaviour
         startScreen.SetActive(true);
         tutorialScreen.SetActive(false);
         score.SetActive(false);
+        if (gameController != null)
+        {
+            gameController.OnTutorialWindowClosed();
+        }
     }
 }
