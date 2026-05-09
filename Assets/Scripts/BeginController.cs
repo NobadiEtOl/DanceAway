@@ -48,7 +48,7 @@ public class BeginController : MonoBehaviour
         if (_gameReadyCalled) return;
 
         beginTimer+= Time.deltaTime;
-        if((beginTimer>=loadTime && isClicked) || readyToPlay || alreadyStarted)
+        if(beginTimer>=loadTime || readyToPlay || alreadyStarted)
         {
             alreadyStarted=true;
             _gameReadyCalled = true;

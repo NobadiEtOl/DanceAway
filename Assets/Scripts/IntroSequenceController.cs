@@ -95,15 +95,21 @@ public class IntroSequenceController : MonoBehaviour
     private Rigidbody2D _playerRb;
     private float _introStartCameraOrthoSize;
 
+    /// <summary>Survives scene reloads (static). True after the intro walk has played once,
+    /// so that Retry skips straight to the start screen without replaying the walk.</summary>
+    private static bool _hasPlayedIntro = false;
+
     // =========================================================================
     // UNITY LIFECYCLE
     // =========================================================================
 
+
     void Start()
-    {
+    {        // Skip the walk on any reload after the first play (e.g. after Retry).
+        if (_hasPlayedIntro) skipIntro = true;
         _playerRb = player.GetComponent<Rigidbody2D>();
         _introStartCameraOrthoSize = cam.orthographicSize; // Respect the camera size configured in-scene as intro start.
-        _totalBeats = UnityEngine.Random.Range(8, 17); // 8-16 inclusive
+        _totalBeats = UnityEngine.Random.Range(5, 11); // 4-8 inclusive
 
         // ------------------------------------------------------------------
         // 1. Compute game-ready collapsed targets.
@@ -259,7 +265,7 @@ public class IntroSequenceController : MonoBehaviour
             ApplyCollapsedGameReadyStateInstant();
             gameController.introRunning = false;
             gameController.BeatTimerBegin();
-            gameController.StartGame();
+            // StartGame() is deferred until the player presses Start.
             _onDone?.Invoke();
             return;
         }
@@ -357,8 +363,10 @@ public class IntroSequenceController : MonoBehaviour
         _roadTiles.Clear();
 
         // Hand control back to normal game systems.
+        _hasPlayedIntro = true;         // future scene reloads (Retry) will skip this walk
         gameController.introRunning = false;
-        gameController.StartGame();     // enemies begin spawning, game state = Play
+        // StartGame() is deferred until the player presses Start, so the first wave
+        // uses whichever difficulty the player selects on the start screen.
 
         // Reveal the start-screen buttons (callback set by BeginController).
         _onDone?.Invoke();

@@ -23,6 +23,8 @@ public class TutorialController : MonoBehaviour
                 gameController = controller.GetComponent<GameController>();
             }
         }
+
+        this.gameObject.SetActive(false);
     }
 
     // Update is called once per frame

@@ -96,6 +96,7 @@ public class GameController : MonoBehaviour
     [SerializeField] private int performanceThresholdHand2 = 130;     // Below this, hand beat 2 removed
     [SerializeField] private int performanceThresholdDrums = 50;      // Below this, drum layers removed
     private bool[] activeAudioLayers = new bool[6];                   // Track which layers are currently playing
+    private bool[] skipNextSchedule = new bool[6];                    // Set by LevelManager crossfade to prevent PlayHandScheduled from restarting the new layer
     private int lastRecordedPerformance = 0;                           // Track last known performance level
     private bool dynamicMusicActive = false;                          // Only apply dynamic adjustments after game starts
 
@@ -115,6 +116,7 @@ public class GameController : MonoBehaviour
         lockAvarageAtMax = false;  // Allow avarage to change from now on
         dynamicMusicActive = true; // Dynamic music now responds to performance
         difficultyLocked = true;   // Lock difficulty for the rest of this session
+        StartGame();               // Spawn first wave now, using the difficulty the player chose
         RefreshCameraForGameplay();
     }
 
@@ -124,6 +126,9 @@ public class GameController : MonoBehaviour
     }
     void Start()
     {
+        // Ensure the game is unpaused when the scene loads (e.g. after Retry from settings)
+        Time.timeScale = 1;
+
         // Initializing the arena grid and other components
         InitializeComponents();
 
@@ -133,6 +138,9 @@ public class GameController : MonoBehaviour
         //Subscribing to beat events
         beatTimer.OnBeat += HandleBeat;
         beatTimer.OffBeat += HandleOffBeat;
+
+        // Sync slider with current mixer value so UI reflects real volume on scene load.
+        SyncVolumeSliderWithMixer();
 
         //Initializin onValueChanged for the volume slider
         volumeSlider.onValueChanged.AddListener(AdjustVolume);
@@ -171,7 +179,7 @@ public class GameController : MonoBehaviour
         {
             gridController.ResetGridBounds();
             crowdController.ResizeCrowd();
-            StartGame();
+            // StartGame() is deferred until the player presses Start (StartHandleBeatCor).
         }
     }
 
@@ -213,7 +221,7 @@ public class GameController : MonoBehaviour
             enemySpawner.SpawnRemainingEnemies();
         }
 
-        if(enemies.Count == 0 && !isSpawningEnemies)
+        if(canStart && enemies.Count == 0 && !isSpawningEnemies)
         {
             levelManager.LoadLevel();// Load level if only there are no enemies present and none will be spawned
             gridController.ResetGridBounds();
@@ -285,6 +293,13 @@ public class GameController : MonoBehaviour
     /// <summary>When true, avarage is locked at max (200) so all music layers play — active from Click to Begin until Start is pressed.</summary>
     public bool lockAvarageAtMax = true;
     
+    /// <summary>Called by LevelManager when a crossfade schedules a layer, so PlayHandScheduled skips one restart cycle for that layer.</summary>
+    public void SkipNextSchedule(int index)
+    {
+        if (index >= 0 && index < skipNextSchedule.Length)
+            skipNextSchedule[index] = true;
+    }
+
     /// <summary>Initializes the dynamic music system by playing all audio layers at full power.</summary>
     private void InitializeDynamicMusic()
     {
@@ -360,18 +375,18 @@ public class GameController : MonoBehaviour
             if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
             {
                 if (!activeAudioLayers[5])
-                {
                     activeAudioLayers[5] = true;
+                if (!skipNextSchedule[5])
+                {
+                    audioSources[5].volume = 0.5f;
+                    audioSources[5].PlayScheduled(dspTime);
                 }
-                audioSources[5].volume = 0.5f;
-                audioSources[5].PlayScheduled(dspTime);
+                skipNextSchedule[5] = false;
             }
             else
             {
                 if (activeAudioLayers[5])
-                {
                     activeAudioLayers[5] = false;
-                }
                 audioSources[5].Stop();
             }
         }
@@ -380,18 +395,18 @@ public class GameController : MonoBehaviour
             if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
             {
                 if (!activeAudioLayers[4])
-                {
                     activeAudioLayers[4] = true;
+                if (!skipNextSchedule[4])
+                {
+                    audioSources[4].volume = 0.4f;
+                    audioSources[4].PlayScheduled(dspTime);
                 }
-                audioSources[4].volume = 0.4f;
-                audioSources[4].PlayScheduled(dspTime);
+                skipNextSchedule[4] = false;
             }
             else
             {
                 if (activeAudioLayers[4])
-                {
                     activeAudioLayers[4] = false;
-                }
                 audioSources[4].Stop();
             }
         }
@@ -400,18 +415,18 @@ public class GameController : MonoBehaviour
             if (!dynamicMusicActive || avarage >= performanceThresholdDrums || avarage == 0)
             {
                 if (!activeAudioLayers[3])
-                {
                     activeAudioLayers[3] = true;
+                if (!skipNextSchedule[3])
+                {
+                    audioSources[3].volume = 0.5f;
+                    audioSources[3].PlayScheduled(dspTime);
                 }
-                audioSources[3].volume = 0.5f;
-                audioSources[3].PlayScheduled(dspTime);
+                skipNextSchedule[3] = false;
             }
             else
             {
                 if (activeAudioLayers[3])
-                {
                     activeAudioLayers[3] = false;
-                }
                 audioSources[3].Stop();
             }
         }
@@ -440,6 +455,14 @@ public class GameController : MonoBehaviour
     public int GetCurrentPerformance()
     {
         return lastRecordedPerformance;
+    }
+
+    /// <summary>Returns the enemy count multiplier for the current difficulty (Easy=1, Normal=2, Hard=4).</summary>
+    public int GetDifficultyMultiplier()
+    {
+        return currentDifficulty == Difficulty.Hard   ? 4
+             : currentDifficulty == Difficulty.Normal ? 2
+             : 1;
     }
 
     public void LessNodders(int no)
@@ -643,7 +666,10 @@ public class GameController : MonoBehaviour
     {
         ChangeState(GameState.Play);
         //beatTimer.StartAfterDelay();
-        totalTrianglesToSpawn = levelNo;
+        int difficultyMultiplier = currentDifficulty == Difficulty.Hard   ? 4
+                                 : currentDifficulty == Difficulty.Normal ? 2
+                                 : 1;
+        totalTrianglesToSpawn = levelNo * difficultyMultiplier;
         trianglesSpawned = 0;
         isSpawningEnemies = true;
         dynamicMusicActive = true; // NOW start calculating dynamic music adjustments
@@ -678,15 +704,86 @@ public class GameController : MonoBehaviour
     [SerializeField]private bool resizeFlag=false;
     [SerializeField]public bool gridBoundsFlag=false;
     private bool tutorialWindowOpen = false;
+    private bool backPressedOnce = false;
+    private float backPressTime = 0f;
+    private const float backPressWindow = 3.5f; // Matches Android LENGTH_LONG toast duration
+
     void Update()
     {
         UpdatePerfectBeatTileColors();
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            HandleBackButton();
+        }
 
         if (currentState == GameState.Play && !introRunning)
         {
             player.HandleInput();
         }
+#if UNITY_EDITOR
+        else
+        {
+            // Allow WASD/arrow-key movement in the Editor regardless of game state,
+            // so you can test movement without going through the intro or pressing Start.
+            player.HandleInput();
+        }
+#endif
+    }
 
+    private void HandleBackButton()
+    {
+        // If settings screen is open, close it
+        /*if (settingScreen != null && settingScreen.activeSelf)
+        {
+            CloseSettingScreen();
+            return;
+        }
+
+        // If gameplay is running, open settings
+        if (canStart && currentState == GameState.Play)
+        {
+            OpenSettingScreen();
+            return;
+        }*/
+
+        // Double-press to minimize app to background
+        if (backPressedOnce && Time.unscaledTime - backPressTime < backPressWindow)
+        {
+            MinimizeApp();
+            return;
+        }
+
+        backPressedOnce = true;
+        backPressTime = Time.unscaledTime;
+        ShowAndroidToast("Oyundan çıkmak için bir daha bas");
+        StartCoroutine(ResetBackPress());
+    }
+
+    private IEnumerator ResetBackPress()
+    {
+        yield return new WaitForSecondsRealtime(backPressWindow);
+        backPressedOnce = false;
+    }
+
+    private void ShowAndroidToast(string message)
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+        AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity");
+        AndroidJavaClass toastClass = new AndroidJavaClass("android.widget.Toast");
+        AndroidJavaObject toast = toastClass.CallStatic<AndroidJavaObject>("makeText", currentActivity, message, toastClass.GetStatic<int>("LENGTH_LONG"));
+        toast.Call("show");
+#endif
+    }
+
+    private void MinimizeApp()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+        AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity");
+        currentActivity.Call<bool>("moveTaskToBack", true);
+#endif
     }
 
     private void SpawnSpotlight_Heart(Vector2Int position, int powerLevel)
@@ -806,6 +903,11 @@ public class GameController : MonoBehaviour
         settingScreen.SetActive(true);
         SetSettingsButtonsVisible(false);
         if (retryButton != null) retryButton.gameObject.SetActive(canStart);
+        if (canStart)
+        {
+            Time.timeScale = 0;
+            beatTimer.PauseTrack();
+        }
     }
 
     public void CloseSettingScreen()
@@ -814,6 +916,11 @@ public class GameController : MonoBehaviour
         if (!tutorialWindowOpen)
         {
             SetSettingsButtonsVisible(true);
+        }
+        if (canStart)
+        {
+            Time.timeScale = 1;
+            beatTimer.ResumeTrack();
         }
     }
 
@@ -839,11 +946,46 @@ public class GameController : MonoBehaviour
             settingsButtonsContainer.SetActive(isVisible);
         }
     }
+    /// <summary>
+    /// Maps a slider value [0,1] to decibels:
+    /// 0.0 → -80 dB (silence), 0.5 → 0 dB (default), 1.0 → +6 dB (2× amplitude).
+    /// </summary>
+    private float SliderToDb(float sliderValue)
+    {
+        if (sliderValue <= 0.5f)
+        {
+            // Lower half: logarithmic fade from silence to unity
+            float normalized = sliderValue / 0.5f;
+            return Mathf.Log10(Mathf.Clamp(normalized, 0.0001f, 1f)) * 20f;
+        }
+        else
+        {
+            // Upper half: linear boost from 0 dB to +6 dB (2× amplitude)
+            float t = (sliderValue - 0.5f) / 0.5f;
+            return t * 6.02f;
+        }
+    }
+
     private void AdjustVolume(float volume)
     {
-        // Convert linear 0-1 slider value to decibel scale (-80 to 0 dB)
-        float volumeDb = Mathf.Log10(Mathf.Clamp(volume, 0.0001f, 1)) * 20;
-        audioMixer.SetFloat("Volume", volumeDb);
+        audioMixer.SetFloat("Volume", SliderToDb(volume));
+
+        // Persist the player's choice so it is restored on next game start.
+        PlayerPrefs.SetFloat("Volume", volume);
+        PlayerPrefs.Save();
+    }
+
+    private void SyncVolumeSliderWithMixer()
+    {
+        if (volumeSlider == null || audioMixer == null) return;
+
+        // Default is 0.5 so the slider rests at unity gain (0 dB).
+        float savedVolume = PlayerPrefs.GetFloat("Volume", 0.5f);
+        savedVolume = Mathf.Clamp01(savedVolume);
+
+        // Apply to mixer and update slider without firing the onValueChanged callback.
+        audioMixer.SetFloat("Volume", SliderToDb(savedVolume));
+        volumeSlider.SetValueWithoutNotify(savedVolume);
     }
 
     public float SendBeatInterval()

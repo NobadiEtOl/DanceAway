@@ -91,10 +91,10 @@ public class Player : MonoBehaviour
     private int mult;
     private int canHit;
     private int moveCombo=0;
-    public void Move(Vector2Int direction,bool pushed=false)
+    public void Move(Vector2Int direction, bool pushed=false, BeatState? overrideState = null)
     {
         Vector2Int newPosition;
-        State = beatTimer.state;
+        State = (overrideState.HasValue && !pushed) ? overrideState.Value : beatTimer.state;
         currentDirection = direction;// To use later if the player walks into a triangle.
         crowdPushFlag = pushed;
 
@@ -171,6 +171,8 @@ public class Player : MonoBehaviour
                 beatStateText.text = "WTF";
             }
 
+            int diffMult = gameController.GetDifficultyMultiplier();
+            scoreIncrement *= diffMult;
             //Only one triangle with the highest powerLevel gets hit.
             canHit = scoreIncrement*mult*(gameController.canStart ? 1 : 0);
             HitWeakestTriangle(canHit);
@@ -368,6 +370,8 @@ public class Player : MonoBehaviour
 
     public void HandleInput()
     {
+        if (hasDied) return;
+
         if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.UpArrow))
         {
             targetRotation = Quaternion.Euler(0, 0, 0);
