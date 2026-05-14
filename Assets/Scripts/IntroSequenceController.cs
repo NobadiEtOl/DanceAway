@@ -281,6 +281,7 @@ public class IntroSequenceController : MonoBehaviour
         {
             ApplyCollapsedGameReadyStateInstant();
             gameController.introRunning = false;
+            gameController.OnIntroComplete();
             gameController.BeatTimerBegin();
             // StartGame() is deferred until the player presses Start.
             _onDone?.Invoke();
@@ -417,6 +418,7 @@ public class IntroSequenceController : MonoBehaviour
         // Hand control back to normal game systems.
         _hasPlayedIntro = true;         // future scene reloads (Retry) will skip this walk
         gameController.introRunning = false;
+        gameController.OnIntroComplete();
         // StartGame() is deferred until the player presses Start, so the first wave
         // uses whichever difficulty the player selects on the start screen.
 
