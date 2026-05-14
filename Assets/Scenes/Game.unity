@@ -186,6 +186,8 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   skipIntro: 0
+  _totalBeats: 15
+  demoTrianglePrefab: {fileID: 3174134684204338043, guid: dc1b601de13087c43a9d7cd1da786a0e, type: 3}
 --- !u!4 &8380948
 Transform:
   m_ObjectHideFlags: 0

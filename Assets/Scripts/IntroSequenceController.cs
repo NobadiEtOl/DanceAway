@@ -86,11 +86,24 @@ public class IntroSequenceController : MonoBehaviour
     private float _bottomCrowdIntroSpeed;
     private float _topCrowdIntroSpeed;
 
-    private List<GameObject> _roadTiles = new List<GameObject>();
-    private int  _totalBeats;      // random 8-16
+    private class DemoTriangleEntry
+    {
+        public GameObject  go;
+        public Rigidbody2D rb;
+        public Animator    anim;
+        public float       worldY; // logical Y — updated each beat so snap target is always exact
+    }
+
+    private List<GameObject>        _roadTiles     = new List<GameObject>();
+    private List<DemoTriangleEntry> _demoTriangles = new List<DemoTriangleEntry>();
+    [SerializeField]private int  _totalBeats;      // random 8-16
     private int  _introBeatCount;  // beats completed so far
     private bool _introActive;     // drives Update logic
     private Action _onDone;        // callback to reveal start screen
+
+    [Header("Demo Gameplay")]
+    [Tooltip("Triangle prefab to use for the scripted dodge demo during the intro walk. Assign Triangle_New or Triangle_Old.")]
+    [SerializeField] private GameObject demoTrianglePrefab;
 
     private Rigidbody2D _playerRb;
     private float _introStartCameraOrthoSize;
@@ -109,7 +122,7 @@ public class IntroSequenceController : MonoBehaviour
         if (_hasPlayedIntro) skipIntro = true;
         _playerRb = player.GetComponent<Rigidbody2D>();
         _introStartCameraOrthoSize = cam.orthographicSize; // Respect the camera size configured in-scene as intro start.
-        _totalBeats = UnityEngine.Random.Range(5, 11); // 4-8 inclusive
+        //_totalBeats = UnityEngine.Random.Range(5, 11); // 4-8 inclusive
 
         // ------------------------------------------------------------------
         // 1. Compute game-ready collapsed targets.
@@ -145,8 +158,9 @@ public class IntroSequenceController : MonoBehaviour
         // ------------------------------------------------------------------
         float tileSize = gameController.tileSize;
 
+        int roadLeftGridX = _roadGridX - 1;
         Vector3 playerIntroStart = new Vector3(
-            _targetPlayerPos.x,
+            roadLeftGridX * tileSize, // Bottom-left tile of the 3-lane intro road.
             _targetPlayerPos.y - _totalBeats * tileSize,
             _targetPlayerPos.z
         );
@@ -171,11 +185,12 @@ public class IntroSequenceController : MonoBehaviour
         player.transform.position = playerIntroStart;
         _playerRb.position        = playerIntroStart;
         player.position           = new Vector2Int(
-            _targetPlayerGridPos.x,
+            _targetPlayerGridPos.x - 1, // LEFT column
             _targetPlayerGridPos.y - _totalBeats
         );
 
-        cam.transform.position = new Vector3(playerIntroStart.x, playerIntroStart.y - initYOffset, _targetCameraPos.z);
+        // Keep camera centred on the road (centre column), not the player's offset X.
+        cam.transform.position = new Vector3(_targetPlayerPos.x, playerIntroStart.y - initYOffset, _targetCameraPos.z);
 
         crowdController.crowdParentBottom.transform.position = _bottomCrowdIntroStartPos;
 
@@ -185,6 +200,7 @@ public class IntroSequenceController : MonoBehaviour
         //    floor (the existing grid starts at y = 0).
         // ------------------------------------------------------------------
         SpawnRoadTiles(tileSize);
+        SpawnDemoTriangles(tileSize);
 
         // ------------------------------------------------------------------
         // 5. Subscribe to the beat — walking begins once BeatTimerBegin() fires.
@@ -199,9 +215,10 @@ public class IntroSequenceController : MonoBehaviour
         float t = Mathf.Clamp01((float)_introBeatCount / _totalBeats);
 
         // Camera follows player smoothly during the walk, offset downward so the player sits in the upper third.
+        // X is locked to the road centre so the camera doesn't oscillate with the player's diagonal zigzag.
         float yOffset = cam.orthographicSize * introCameraVerticalOffsetFraction;
         Vector3 followTarget = new Vector3(
-            player.transform.position.x,
+            _targetPlayerPos.x,
             player.transform.position.y - yOffset,
             _targetCameraPos.z
         );
@@ -278,21 +295,50 @@ public class IntroSequenceController : MonoBehaviour
     // BEAT HANDLER
     // =========================================================================
 
+    // Extra beats after the player reaches the centre during which triangles keep moving.
+    private const int ExtraTriangleBeats = 2;
+
     private void OnIntroBeat()
     {
-        // All beats walked — start the final transition on this beat.
-        if (_introBeatCount >= _totalBeats)
+        // All beats walked AND extra triangle tail beats done — start final transition.
+        if (_introBeatCount >= _totalBeats + ExtraTriangleBeats)
         {
             beatTimer.OnBeat -= OnIntroBeat;
             StartCoroutine(RunFinalTransition());
             return;
         }
 
-        // Reuse the existing crowd-push move path:
-        //   pushed=true bypasses beat-timing and grid-bounds checks, triggers
-        //   the walk animation, and applies the physics force — exactly what
-        //   happens when a crowd member pushes the player in normal gameplay.
-        player.Move(Vector2Int.up, pushed: true);
+        // Player only moves during the main walk phase.
+        if (_introBeatCount < _totalBeats)
+        {
+            // Traverse all 3 road lanes during the preview:
+            //   left -> middle -> right -> middle -> ... while always moving upward.
+            //   pushed=true bypasses beat-timing and grid-bounds checks.
+            int laneStep = _introBeatCount % 4;
+            Vector2Int moveDir = (laneStep == 0 || laneStep == 1)
+                ? new Vector2Int(1, 1)
+                : new Vector2Int(-1, 1);
+            player.Move(moveDir, pushed: true);
+        }
+
+        // Triangles keep moving for the full walk PLUS the extra tail beats.
+        float ts            = gameController.tileSize;
+        float moveDuration  = gameController.SendBeatInterval() / 3f; // matches Triangle's speedMult = 3
+        float destroyBelowY = _targetPlayerPos.y - _totalBeats * ts - ts;
+        for (int i = _demoTriangles.Count - 1; i >= 0; i--)
+        {
+            DemoTriangleEntry entry = _demoTriangles[i];
+            if (entry.go == null) { _demoTriangles.RemoveAt(i); continue; }
+            entry.worldY -= ts;
+            if (entry.worldY < destroyBelowY)
+            {
+                Destroy(entry.go);
+                _demoTriangles.RemoveAt(i);
+                continue;
+            }
+            StartCoroutine(MoveDemoTriangle(entry, ts, moveDuration));
+        }
+
         _introBeatCount++;
     }
 
@@ -355,12 +401,18 @@ public class IntroSequenceController : MonoBehaviour
 
         ApplyCollapsedGridBounds();
 
-        // Clean up road tiles.
+        // Clean up road tiles and demo triangles.
         foreach (GameObject tile in _roadTiles)
         {
             if (tile != null) Destroy(tile);
         }
         _roadTiles.Clear();
+
+        foreach (DemoTriangleEntry entry in _demoTriangles)
+        {
+            if (entry.go != null) Destroy(entry.go);
+        }
+        _demoTriangles.Clear();
 
         // Hand control back to normal game systems.
         _hasPlayedIntro = true;         // future scene reloads (Retry) will skip this walk
@@ -418,6 +470,101 @@ public class IntroSequenceController : MonoBehaviour
                 _roadTiles.Add(tile);
             }
         }
+    }
+
+    /// <summary>
+    /// Spawns demo enemy triangles on the intro road using all 3 lanes,
+    /// spaced 1 tile apart starting 1 tile above the player's start position.
+    /// The Triangle AI component is disabled immediately — these are purely visual props.
+    /// They move downward one tile per beat in OnIntroBeat().
+    /// </summary>
+    private void SpawnDemoTriangles(float tileSize)
+    {
+        if (demoTrianglePrefab == null) return;
+
+        GameObject triParent = new GameObject("IntroDemoTriangles");
+        int playerIntroStartGridY = _targetPlayerGridPos.y - _totalBeats;
+        // One triangle per row of the intro road — fills the entire path from start to centre.
+        int numEnemies = _totalBeats;
+
+        int roadLeftGridX = _roadGridX - 1;
+        for (int i = 0; i < numEnemies; i++)
+        {
+            // Ping-pong lane order: left -> middle -> right -> middle -> left -> ...
+            int lane = (i % 4 == 0) ? 0 : (i % 4 == 1) ? 1 : (i % 4 == 2) ? 2 : 1;
+            int gridX = roadLeftGridX + lane;
+            // Each subsequent triangle is 1 row above the previous — no gaps.
+            int gridY = playerIntroStartGridY + 1 + i*2;
+            float worldX = gridX * tileSize;
+            float worldY = gridY * tileSize;
+
+            GameObject tri = Instantiate(
+                demoTrianglePrefab,
+                new Vector3(worldX, worldY, 0f),
+                Quaternion.Euler(0f, 0f, 180f), // face downward to match movement direction
+                triParent.transform
+            );
+            tri.name = $"DemoTriangle_{i}";
+
+            // Disable Triangle AI — Initialize() was never called so beatTimer/gameController
+            // are null; disabling prevents FixedUpdate from crashing.
+            Triangle triComp = tri.GetComponent<Triangle>();
+            if (triComp != null) triComp.enabled = false;
+
+            // Disable all colliders so demo triangles never interact with the player.
+            foreach (Collider2D col in tri.GetComponentsInChildren<Collider2D>())
+                col.enabled = false;
+
+            // Set up Rigidbody2D for kinematic smooth movement driven by the coroutine.
+            Rigidbody2D triRb = tri.GetComponent<Rigidbody2D>();
+            if (triRb != null)
+            {
+                triRb.gravityScale = 0f;
+                triRb.isKinematic  = true;
+            }
+
+            // Start animators in their idle states.
+            Animator triAnim = tri.GetComponent<Animator>();
+            if (triAnim != null) triAnim.Play("Triangle_Idle");
+            if (tri.transform.childCount > 0)
+            {
+                Animator childAnim = tri.transform.GetChild(0).GetComponent<Animator>();
+                if (childAnim != null) childAnim.Play("Triangle_Damage_Idle");
+            }
+
+            _demoTriangles.Add(new DemoTriangleEntry { go = tri, rb = triRb, anim = triAnim, worldY = worldY });
+        }
+    }
+
+    /// <summary>
+    /// Smoothly moves a demo triangle one tile downward using Rigidbody2D.MovePosition,
+    /// playing the Triangle_Moving animation during the move and Triangle_Idle afterward.
+    /// Movement duration matches Triangle's normal speedMult=3 (one-third of a beat).
+    /// </summary>
+    private IEnumerator MoveDemoTriangle(DemoTriangleEntry entry, float tileSize, float moveDuration)
+    {
+        if (entry.go == null) yield break;
+        entry.anim?.Play("Triangle_Moving");
+
+        float elapsed = 0f;
+        float speed   = tileSize / moveDuration;
+
+        while (elapsed < moveDuration)
+        {
+            if (entry.go == null) yield break;
+            entry.rb.MovePosition(entry.rb.position + Vector2.down * (speed * Time.fixedDeltaTime));
+            elapsed += Time.fixedDeltaTime;
+            yield return new WaitForFixedUpdate();
+        }
+
+        if (entry.go == null) yield break;
+
+        // Snap to the exact logical Y to prevent float drift accumulating across beats.
+        Vector2 snapped = new Vector2(entry.rb.position.x, entry.worldY);
+        entry.rb.position = snapped;
+        entry.go.transform.position = new Vector3(snapped.x, snapped.y, entry.go.transform.position.z);
+
+        entry.anim?.Play("Triangle_Idle");
     }
 
     private void ComputeCollapsedTargets()
