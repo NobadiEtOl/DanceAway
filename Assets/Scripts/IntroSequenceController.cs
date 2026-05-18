@@ -160,7 +160,7 @@ public class IntroSequenceController : MonoBehaviour
 
         int roadLeftGridX = _roadGridX - 1;
         Vector3 playerIntroStart = new Vector3(
-            roadLeftGridX * tileSize, // Bottom-left tile of the 3-lane intro road.
+            _roadGridX * tileSize, // Bottom-center tile of the 3-lane intro road.
             _targetPlayerPos.y - _totalBeats * tileSize,
             _targetPlayerPos.z
         );
@@ -185,7 +185,7 @@ public class IntroSequenceController : MonoBehaviour
         player.transform.position = playerIntroStart;
         _playerRb.position        = playerIntroStart;
         player.position           = new Vector2Int(
-            _targetPlayerGridPos.x - 1, // LEFT column
+            _targetPlayerGridPos.x, // CENTER column
             _targetPlayerGridPos.y - _totalBeats
         );
 
@@ -282,6 +282,8 @@ public class IntroSequenceController : MonoBehaviour
             ApplyCollapsedGameReadyStateInstant();
             gameController.introRunning = false;
             gameController.OnIntroComplete();
+            gridController.ResetGridBounds();
+            crowdController.ResizeCrowd();
             gameController.BeatTimerBegin();
             // StartGame() is deferred until the player presses Start.
             _onDone?.Invoke();
@@ -313,12 +315,12 @@ public class IntroSequenceController : MonoBehaviour
         if (_introBeatCount < _totalBeats)
         {
             // Traverse all 3 road lanes during the preview:
-            //   left -> middle -> right -> middle -> ... while always moving upward.
+            //   middle -> left -> middle -> right -> middle -> ... while always moving upward.
             //   pushed=true bypasses beat-timing and grid-bounds checks.
             int laneStep = _introBeatCount % 4;
-            Vector2Int moveDir = (laneStep == 0 || laneStep == 1)
-                ? new Vector2Int(1, 1)
-                : new Vector2Int(-1, 1);
+            Vector2Int moveDir = (laneStep == 0 || laneStep == 3)
+                ? new Vector2Int(-1, 1)
+                : new Vector2Int(1, 1);
             player.Move(moveDir, pushed: true);
         }
 
@@ -419,6 +421,12 @@ public class IntroSequenceController : MonoBehaviour
         _hasPlayedIntro = true;         // future scene reloads (Retry) will skip this walk
         gameController.introRunning = false;
         gameController.OnIntroComplete();
+
+        // Apply the correct initial gameplay bounds and camera size immediately —
+        // this is the same block GameController skips at Start() while introRunning=true.
+        gridController.ResetGridBounds();
+        crowdController.ResizeCrowd();
+
         // StartGame() is deferred until the player presses Start, so the first wave
         // uses whichever difficulty the player selects on the start screen.
 
@@ -492,8 +500,8 @@ public class IntroSequenceController : MonoBehaviour
         int roadLeftGridX = _roadGridX - 1;
         for (int i = 0; i < numEnemies; i++)
         {
-            // Ping-pong lane order: left -> middle -> right -> middle -> left -> ...
-            int lane = (i % 4 == 0) ? 0 : (i % 4 == 1) ? 1 : (i % 4 == 2) ? 2 : 1;
+            // Ping-pong lane order: middle -> left -> middle -> right -> middle -> ...
+            int lane = (i % 4 == 0) ? 1 : (i % 4 == 1) ? 0 : (i % 4 == 2) ? 1 : 2;
             int gridX = roadLeftGridX + lane;
             // Each subsequent triangle is 1 row above the previous — no gaps.
             int gridY = playerIntroStartGridY + 1 + i*2;

@@ -1,0 +1,1077 @@
+fileFormatVersion: 2
+guid: 7f8938083abc77f4d99838dfcd39c94a
+TextureImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 2
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 3
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 3
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 3
+    buildTarget: iPhone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 3
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 3
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: soundBars_filled_0
+      rect:
+        serializedVersion: 2
+        x: 4
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 5289e020a87c1c446b21d631e46ee4d8
+      internalID: 1738460875
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_1
+      rect:
+        serializedVersion: 2
+        x: 16
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: c022e3f58cbc7a5409f41ffecbc53df4
+      internalID: 1945988728
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_2
+      rect:
+        serializedVersion: 2
+        x: 28
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 234e2e017ffcc3946b95bbc333d67824
+      internalID: -1646866672
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_3
+      rect:
+        serializedVersion: 2
+        x: 40
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b5b831f5f0cda5249873c0669cbfe1f0
+      internalID: -290466100
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_4
+      rect:
+        serializedVersion: 2
+        x: 52
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: df806b10de729224aa78ff581d95aebe
+      internalID: 624542951
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_5
+      rect:
+        serializedVersion: 2
+        x: 64
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: a741d46ee80459141a9a3bc59169fa05
+      internalID: -108716848
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_6
+      rect:
+        serializedVersion: 2
+        x: 76
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 130e7f7ab15e41e4d873e3275d917fb8
+      internalID: -2043926894
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_7
+      rect:
+        serializedVersion: 2
+        x: 88
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 4337ff68b237cc047ad14c79c1c8939c
+      internalID: -225465592
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_8
+      rect:
+        serializedVersion: 2
+        x: 100
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 7853939659dd4ef41a7d97b962d0fd74
+      internalID: 1715979085
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_9
+      rect:
+        serializedVersion: 2
+        x: 112
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: cf6fc99feeb24af4788de73a2da776eb
+      internalID: -1347675317
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_10
+      rect:
+        serializedVersion: 2
+        x: 124
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 1e7b642c2c49b684fbf52e0c9358efa6
+      internalID: -169047147
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_11
+      rect:
+        serializedVersion: 2
+        x: 136
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: cc81abe5a889c3344905c763f938c222
+      internalID: 612081245
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_12
+      rect:
+        serializedVersion: 2
+        x: 148
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 6df87daa191c6a04d969cf0a5124c09e
+      internalID: 1991630739
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_13
+      rect:
+        serializedVersion: 2
+        x: 160
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: e438616ab7248fe4b94549251d2d7260
+      internalID: 1341340251
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_14
+      rect:
+        serializedVersion: 2
+        x: 172
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 25ea17b715dcba6409ddf73d55cb7694
+      internalID: 1128778678
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_15
+      rect:
+        serializedVersion: 2
+        x: 184
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 370871c72291a424fa4ab3c95f9f3fa4
+      internalID: 1094246835
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_16
+      rect:
+        serializedVersion: 2
+        x: 196
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: d0fff757292b33244af9e167a05b26d1
+      internalID: 521847573
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_17
+      rect:
+        serializedVersion: 2
+        x: 208
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 90fbe4686281b6244a5ee73297186845
+      internalID: -2050558834
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_18
+      rect:
+        serializedVersion: 2
+        x: 220
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 2721a8247f19cd947be2cbb8a719ab12
+      internalID: 954842924
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_19
+      rect:
+        serializedVersion: 2
+        x: 232
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: c28a396e4494eed46838f2d7a45d393e
+      internalID: -1057433524
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_20
+      rect:
+        serializedVersion: 2
+        x: 244
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 8180946bd19bc1f4ebc1fd6d689dc6bc
+      internalID: -1075413163
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_21
+      rect:
+        serializedVersion: 2
+        x: 256
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b4c0eb34c5e7a0145b6a5f234b4e15a3
+      internalID: -317433490
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_22
+      rect:
+        serializedVersion: 2
+        x: 268
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 37daeb5c2ee5b224d83e6534f3fe10de
+      internalID: -107069389
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_23
+      rect:
+        serializedVersion: 2
+        x: 280
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 1951beee55079d54f816e366d6e69a86
+      internalID: 419212246
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_24
+      rect:
+        serializedVersion: 2
+        x: 292
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: c8d085ff17939ae439fa9c6876fcd809
+      internalID: 897222325
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_25
+      rect:
+        serializedVersion: 2
+        x: 304
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 002b93fb16cd3c1488590d4762fe4117
+      internalID: 1625341703
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_26
+      rect:
+        serializedVersion: 2
+        x: 316
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 6a199a228cd4e1f4f8751e8dbb25cbdd
+      internalID: -1832522410
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_27
+      rect:
+        serializedVersion: 2
+        x: 328
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b7a73ad7205af784fa92d24dc897cdb8
+      internalID: 1319933106
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_28
+      rect:
+        serializedVersion: 2
+        x: 340
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b26f3fe557f67ce47bc36329734a9def
+      internalID: -1089744682
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_29
+      rect:
+        serializedVersion: 2
+        x: 352
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 222b04b638b5ce5438c9e6079289b2df
+      internalID: -1017406073
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_30
+      rect:
+        serializedVersion: 2
+        x: 364
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 7ded3aa8fe869fb48852f311b8c44a4f
+      internalID: -1269825657
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_31
+      rect:
+        serializedVersion: 2
+        x: 376
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 998026502cf6fe0428821121123fa0c6
+      internalID: 1871596708
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_32
+      rect:
+        serializedVersion: 2
+        x: 388
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: cbbceed7dd4e1b14bbf7eef68c7f3edc
+      internalID: 2134784294
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_33
+      rect:
+        serializedVersion: 2
+        x: 400
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 2d59f67d28a5f144b88b0dcfaaa5b102
+      internalID: 1589485453
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_34
+      rect:
+        serializedVersion: 2
+        x: 412
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: e8299af5856698c4d85c4dd84dd6749e
+      internalID: -493125365
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_35
+      rect:
+        serializedVersion: 2
+        x: 424
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b318c1bdbfbb31c479c079ab406b9d54
+      internalID: 2038615875
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_36
+      rect:
+        serializedVersion: 2
+        x: 436
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: c251f1c329f4f924b83ad9763f34ff77
+      internalID: 92381130
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_37
+      rect:
+        serializedVersion: 2
+        x: 448
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: bbc003a71c958d944ab934a8b426326e
+      internalID: -2043638063
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_38
+      rect:
+        serializedVersion: 2
+        x: 460
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: ff081e5a9e980ee408f9399e6b7928b1
+      internalID: -569459300
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_39
+      rect:
+        serializedVersion: 2
+        x: 472
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 90dd5455fbcf293449e12ed3e29ca322
+      internalID: -652706192
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_40
+      rect:
+        serializedVersion: 2
+        x: 484
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: ccc9996caa986e34db8a4fbbc33fba9c
+      internalID: -1378862245
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: soundBars_filled_41
+      rect:
+        serializedVersion: 2
+        x: 496
+        y: 0
+        width: 12.095238
+        height: 64
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 28f592a8d4891e14a97a98bf56ba4f61
+      internalID: -1526642472
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    physicsShape: []
+    bones: []
+    spriteID: 5e97eb03825dee720800000000000000
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    nameFileIdTable:
+      soundBars_filled_0: 1738460875
+      soundBars_filled_1: 1945988728
+      soundBars_filled_10: -169047147
+      soundBars_filled_11: 612081245
+      soundBars_filled_12: 1991630739
+      soundBars_filled_13: 1341340251
+      soundBars_filled_14: 1128778678
+      soundBars_filled_15: 1094246835
+      soundBars_filled_16: 521847573
+      soundBars_filled_17: -2050558834
+      soundBars_filled_18: 954842924
+      soundBars_filled_19: -1057433524
+      soundBars_filled_2: -1646866672
+      soundBars_filled_20: -1075413163
+      soundBars_filled_21: -317433490
+      soundBars_filled_22: -107069389
+      soundBars_filled_23: 419212246
+      soundBars_filled_24: 897222325
+      soundBars_filled_25: 1625341703
+      soundBars_filled_26: -1832522410
+      soundBars_filled_27: 1319933106
+      soundBars_filled_28: -1089744682
+      soundBars_filled_29: -1017406073
+      soundBars_filled_3: -290466100
+      soundBars_filled_30: -1269825657
+      soundBars_filled_31: 1871596708
+      soundBars_filled_32: 2134784294
+      soundBars_filled_33: 1589485453
+      soundBars_filled_34: -493125365
+      soundBars_filled_35: 2038615875
+      soundBars_filled_36: 92381130
+      soundBars_filled_37: -2043638063
+      soundBars_filled_38: -569459300
+      soundBars_filled_39: -652706192
+      soundBars_filled_4: 624542951
+      soundBars_filled_40: -1378862245
+      soundBars_filled_41: -1526642472
+      soundBars_filled_5: -108716848
+      soundBars_filled_6: -2043926894
+      soundBars_filled_7: -225465592
+      soundBars_filled_8: 1715979085
+      soundBars_filled_9: -1347675317
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

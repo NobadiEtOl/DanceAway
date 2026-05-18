@@ -8,7 +8,6 @@ using UnityEngine.Audio;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-using static SwipeController;
 
 namespace Common.Enums
 {
@@ -31,7 +30,8 @@ namespace Common.Enums
     public enum MovementMode
     {
         Swipe,
-        ArrowKeys
+        ArrowKeys,
+        JoystickBeat
     }
 }
 
@@ -63,10 +63,11 @@ public class GameController : MonoBehaviour
     public int trianglesSpawned;
     private int beatCounter = 0;
     public bool isSpawningEnemies = false; // Flag to track enemy spawning
+    [Header("Enemy Movement")]
+    [SerializeField] private bool freezeEnemies = false;
     private LevelManager levelManager;
     private EnemySpawner enemySpawner;
     private GridController gridController;
-    [SerializeField] private SwipeController swipeController;
     public bool canStart=false;
     /// <summary>Set true by default so all gameplay logic is blocked until the intro sequence finishes.</summary>
     public bool introRunning = true;
@@ -101,16 +102,8 @@ public class GameController : MonoBehaviour
 
     // Movement Mode
     [Header("Movement Mode")]
-    [SerializeField] private GameObject arrowKeysHolder;
-    [SerializeField] private UnityEngine.UI.Button arrowUp;
-    [SerializeField] private UnityEngine.UI.Button arrowDown;
-    [SerializeField] private UnityEngine.UI.Button arrowLeft;
-    [SerializeField] private UnityEngine.UI.Button arrowRight;
-    [SerializeField] private UnityEngine.UI.Button arrowUpLeft;
-    [SerializeField] private UnityEngine.UI.Button arrowUpRight;
-    [SerializeField] private UnityEngine.UI.Button arrowDownLeft;
-    [SerializeField] private UnityEngine.UI.Button arrowDownRight;
     [SerializeField] private MovementMode currentMovementMode;
+    [SerializeField] private ControlPlacementController controlPlacement;
 
     [SerializeField] private int performanceThresholdHand1 = 75;      // Below this, hand beat 1 removed
     [SerializeField] private int performanceThresholdHand2 = 130;     // Below this, hand beat 2 removed
@@ -136,6 +129,7 @@ public class GameController : MonoBehaviour
         lockAvarageAtMax = false;  // Allow avarage to change from now on
         dynamicMusicActive = true; // Dynamic music now responds to performance
         difficultyLocked = true;   // Lock difficulty for the rest of this session
+        if (controlPlacement != null) controlPlacement.ShowMode(currentMovementMode); // Show controls now that gameplay begins
         StartGame();               // Spawn first wave now, using the difficulty the player chose
         RefreshCameraForGameplay();
     }
@@ -175,7 +169,8 @@ public class GameController : MonoBehaviour
         }
 
         settingScreen.SetActive(false);
-        endScreen.SetActive(false);        
+        endScreen.SetActive(false);
+        scoreObj.SetActive(false);
 
         crowdController.GetCrowdParents();
         crowdController.MaxNodders(); // Match max-average lock: all layers playing, all crowd nodding
@@ -194,11 +189,7 @@ public class GameController : MonoBehaviour
         ApplyDifficulty(saved);
         UpdateLockIcons();
 
-        // Movement Mode: arrow keys are hidden until the intro/loading sequence completes.
-        if (arrowKeysHolder != null) arrowKeysHolder.SetActive(false);
-        // Restore the player's saved input preference (default: Swipe for mobile).
         currentMovementMode = (MovementMode)PlayerPrefs.GetInt("MovementMode", (int)MovementMode.ArrowKeys);
-        WireArrowButtons();
 
         // Guarded: IntroSequenceController will call these after the intro walk finishes.
         if (!introRunning)
@@ -266,6 +257,11 @@ public class GameController : MonoBehaviour
     public int enemiesKilled = 0;
     IEnumerator HandleBeatCoroutine()
     {
+        if (freezeEnemies)
+        {
+            yield break;
+        }
+
         List<Triangle> trianglesToRemove = new List<Triangle>();
 
         // Iterate over a copy of the list to avoid modifying the collection during iteration
@@ -742,19 +738,6 @@ public class GameController : MonoBehaviour
         {
             HandleBackButton();
         }
-
-        if (currentState == GameState.Play && !introRunning)
-        {
-            player.HandleInput();
-        }
-#if UNITY_EDITOR
-        else
-        {
-            // Allow WASD/arrow-key movement in the Editor regardless of game state,
-            // so you can test movement without going through the intro or pressing Start.
-            player.HandleInput();
-        }
-#endif
     }
 
     private void HandleBackButton()
@@ -934,6 +917,10 @@ public class GameController : MonoBehaviour
             Time.timeScale = 0;
             beatTimer.PauseTrack();
         }
+        else if (startScreen != null)
+        {
+            startScreen.SetActive(false);
+        }
     }
 
     public void CloseSettingScreen()
@@ -947,6 +934,10 @@ public class GameController : MonoBehaviour
         {
             Time.timeScale = 1;
             beatTimer.ResumeTrack();
+        }
+        else if (startScreen != null)
+        {
+            startScreen.SetActive(true);
         }
     }
 
@@ -1062,7 +1053,8 @@ public class GameController : MonoBehaviour
     /// </summary>
     public void OnIntroComplete()
     {
-        ApplyMovementMode(currentMovementMode);
+        // Controls stay hidden until an info window previews them or gameplay starts.
+        if (controlPlacement != null) controlPlacement.HideControls();
     }
 
     /// <summary>
@@ -1083,97 +1075,92 @@ public class GameController : MonoBehaviour
     public MovementMode GetMovementMode() => currentMovementMode;
 
     /// <summary>
-    /// Applies the visual and functional state for the given mode:
-    ///   Swipe     → SwipeController enabled, arrow keys UI hidden.
-    ///   ArrowKeys → SwipeController disabled, arrow keys UI shown.
-    /// WASD/keyboard input (HandleInput) remains available in both modes.
+    /// Called by Unity whenever a serialized field changes in the Inspector (edit mode and play mode).
+    /// Ensures the active input controller always matches currentMovementMode.
     /// </summary>
-    private void ApplyMovementMode(MovementMode mode)
+    private void OnValidate()
     {
-        bool isArrowKeys = mode == MovementMode.ArrowKeys;
-
-        if (arrowKeysHolder != null)
-            arrowKeysHolder.SetActive(isArrowKeys);
-
-        if (swipeController != null)
-            swipeController.enabled = !isArrowKeys;
+        ApplyMovementMode(currentMovementMode);
     }
 
     /// <summary>
-    /// Registers onClick listeners for all 8 directional arrow buttons.
-    /// Safe to call even if some buttons are unassigned (null-checked).
+    /// Applies the visual and functional state for the given mode:
+    ///   Swipe        → SwipeController enabled, arrow keys UI hidden, joystick disabled.
+    ///   ArrowKeys    → SwipeController disabled, arrow keys UI shown, joystick disabled.
+    ///   JoystickBeat → SwipeController disabled, arrow keys UI hidden, joystick enabled.
+    /// WASD/keyboard input (HandleInput) remains available in all modes.
     /// </summary>
-    private void WireArrowButtons()
+    private void ApplyMovementMode(MovementMode mode)
     {
-        if (arrowUp        != null) arrowUp.onClick.AddListener(OnArrowUp);
-        if (arrowDown      != null) arrowDown.onClick.AddListener(OnArrowDown);
-        if (arrowLeft      != null) arrowLeft.onClick.AddListener(OnArrowLeft);
-        if (arrowRight     != null) arrowRight.onClick.AddListener(OnArrowRight);
-        if (arrowUpLeft    != null) arrowUpLeft.onClick.AddListener(OnArrowUpLeft);
-        if (arrowUpRight   != null) arrowUpRight.onClick.AddListener(OnArrowUpRight);
-        if (arrowDownLeft  != null) arrowDownLeft.onClick.AddListener(OnArrowDownLeft);
-        if (arrowDownRight != null) arrowDownRight.onClick.AddListener(OnArrowDownRight);
+        // Each mode's controller lives on its prefab — instantiation IS enabling.
+        // Destruction (on mode switch) IS disabling. No explicit enable/disable needed.
+        // Guard: never show controls while the intro is still running or before the game starts.
+        if (Application.isPlaying && controlPlacement != null && !introRunning && canStart)
+            controlPlacement.ShowMode(mode);
     }
 
-    // Individual arrow button handlers — each sets the visual rotation then triggers the move(s).
-    private void OnArrowUp()
+    // -------------------------------------------------------------------------
+    // Arrow input handlers (public so ArrowKeysController can wire them as delegates)
+    // -------------------------------------------------------------------------
+
+    public void OnArrowUp()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 0);
+        player.SetFacingDirection(Vector2Int.up);
         player.Move(Vector2Int.up);
     }
 
-    private void OnArrowDown()
+    public void OnArrowDown()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 180);
+        player.SetFacingDirection(Vector2Int.down);
         player.Move(Vector2Int.down);
     }
 
-    private void OnArrowLeft()
+    public void OnArrowLeft()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 90);
+        player.SetFacingDirection(Vector2Int.left);
         player.Move(Vector2Int.left);
     }
 
-    private void OnArrowRight()
+    public void OnArrowRight()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 270);
+        player.SetFacingDirection(Vector2Int.right);
         player.Move(Vector2Int.right);
     }
 
-    private void OnArrowUpLeft()
+    public void OnArrowUpLeft()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 0);
-        player.Move(Vector2Int.up);
-        player.Move(Vector2Int.left);
+        Vector2Int dir = new Vector2Int(-1, 1);
+        player.SetFacingDirection(dir);
+        player.Move(dir);
     }
 
-    private void OnArrowUpRight()
+    public void OnArrowUpRight()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 0);
-        player.Move(Vector2Int.up);
-        player.Move(Vector2Int.right);
+        Vector2Int dir = new Vector2Int(1, 1);
+        player.SetFacingDirection(dir);
+        player.Move(dir);
     }
 
-    private void OnArrowDownLeft()
+    public void OnArrowDownLeft()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 180);
-        player.Move(Vector2Int.down);
-        player.Move(Vector2Int.left);
+        Vector2Int dir = new Vector2Int(-1, -1);
+        player.SetFacingDirection(dir);
+        player.Move(dir);
     }
 
-    private void OnArrowDownRight()
+    public void OnArrowDownRight()
     {
         if (!canStart || introRunning) return;
-        player.transform.eulerAngles = new Vector3(0, 0, 180);
-        player.Move(Vector2Int.down);
-        player.Move(Vector2Int.right);
+        Vector2Int dir = new Vector2Int(1, -1);
+        player.SetFacingDirection(dir);
+        player.Move(dir);
     }
 
 

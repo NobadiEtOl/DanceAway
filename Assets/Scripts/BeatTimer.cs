@@ -8,12 +8,13 @@ public class BeatTimer : MonoBehaviour
     [Range(0,1)]
     [SerializeField] private float timeS; // To control time scale for debugging
     [SerializeField] public float beatInterval = 0.6f; // Time between beats in seconds
-    [SerializeField]private Slider backSlider;
-    [SerializeField]private Text backText;
-    [SerializeField]private Image beatIndicator;
-    [SerializeField]private Transform beatIndicatorCurrent;
     [SerializeField]public float audioDelay;
-    //[SerializeField]private Text dpsText;
+    [SerializeField] private Sprite[] barSprites;          // Assign sliced bar sprites L→R in Inspector
+    [SerializeField] private RectTransform beatIndicatorBackground; // The empty-bars background Image RectTransform
+    // How long (seconds) the bar holds at 100% either side of the beat.
+    // Widens the peak so it is never skipped by the render framerate.
+    [SerializeField] private float peakHoldSeconds = 0.05f;
+    private Image[] _barImages;                             // Created at runtime by PositionFilledBars
     private GameController gameController;
     public event Action OnBeat;
     public event Action OffBeat;
@@ -23,12 +24,6 @@ public class BeatTimer : MonoBehaviour
     [SerializeField] public float toleranceDivisor = 20f;
     // Fixed lookahead for audio scheduling — decoupled from tolerance so difficulty doesn't affect audio timing.
     [SerializeField] private float audioLookaheadSeconds = 0.12f;
-    // Color squares (right-aligned, right=perfect): wire in Inspector
-    [SerializeField] private RectTransform perfectSquare;
-    [SerializeField] private RectTransform closeSquare;
-    [SerializeField] private RectTransform middleSquare;
-    [SerializeField] private RectTransform farSquare;
-    private float barWidth;
     // ---- Centralized Beat Track ----
     // nextBeatDsp: DSP timestamp when the next beat will fire.
     // Advances forward each beat — never reset, never modulo.
@@ -48,19 +43,74 @@ public class BeatTimer : MonoBehaviour
 
     }
 
-    private Vector3 beatIndLeftPos;
     void Start()
     {
         backGround = GameObject.Find("BackGround").GetComponent<SpriteRenderer>();
         gameController = GetComponent<GameController>();
         tolerance = beatInterval / toleranceDivisor;
         audioDelay = beatInterval * 0.9f;
-        RectTransform rectTransform = beatIndicator.GetComponent<RectTransform>();
-        barWidth = rectTransform.rect.width * rectTransform.lossyScale.x;
-        beatIndLeftPos = rectTransform.position - new Vector3(barWidth / 2, 0, 0);
-        beatIndicatorCurrent.position = new Vector3(beatIndLeftPos.x, beatIndicatorCurrent.position.y, 5f);
-        ResizeColorSquares();
+        StartCoroutine(PositionFilledBarsNextFrame());
         StartAfterDelay();
+    }
+
+    // -------------------------------------------------------------------------
+    // Beat Indicator Bar Positioning
+    // -------------------------------------------------------------------------
+
+    // Waits one frame so the Canvas has finished its layout pass before reading rect sizes.
+    private IEnumerator PositionFilledBarsNextFrame()
+    {
+        yield return null;
+        PositionFilledBars();
+    }
+
+    /// <summary>
+    /// Creates one Image GameObject per sprite in barSprites, parents them all under
+    /// beatIndicatorBackground, and positions each one over its matching pixel slot.
+    ///
+    /// Source image: 512 × 64 px
+    ///   5 px left pad | 42 × (10 px bar + 2 px gap) | 5 px right pad
+    /// </summary>
+    private void PositionFilledBars()
+    {
+        if (barSprites == null || barSprites.Length == 0 || beatIndicatorBackground == null) return;
+
+        float totalW = beatIndicatorBackground.rect.width;
+
+        // Pixel constants from the source image (512 px wide)
+        const float IMG_W  = 512f;
+        const float PAD    = 5f;
+        const float BAR_W  = 10f;
+        const float STRIDE = 12f; // 10 px bar + 2 px gap
+
+        float scale = totalW / IMG_W;
+
+        _barImages = new Image[barSprites.Length];
+
+        for (int i = 0; i < barSprites.Length; i++)
+        {
+            GameObject go = new GameObject($"Bar_{i:D2}", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(beatIndicatorBackground, false);
+
+            Image img = go.GetComponent<Image>();
+            img.sprite        = barSprites[i];
+            img.raycastTarget = false;
+            go.SetActive(false); // hidden until the beat brings it in
+
+            RectTransform rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0f);
+            rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+
+            // Center X relative to background center (background pivot assumed center)
+            float centerX = (PAD + i * STRIDE + BAR_W * 0.5f) * scale - totalW * 0.5f;
+            rt.anchoredPosition = new Vector2(centerX, 0f);
+
+            // Width = scaled bar; height = 0 → full parent height via Y anchors
+            rt.sizeDelta = new Vector2(BAR_W * scale, 0f);
+
+            _barImages[i] = img;
+        }
     }
 
     public bool begin = false;
@@ -122,8 +172,6 @@ public class BeatTimer : MonoBehaviour
                 beatFired = false; // reset so the next beat can fire
             }
 
-            if(backText) backText.text = backSlider.value.ToString();
-
             // Symmetric distance from the nearest beat, in seconds.
             // 0 = right on the beat, beatInterval/2 = furthest from any beat.
             // Continuous and jump-free because both sides equal 0 at the beat moment.
@@ -133,8 +181,20 @@ public class BeatTimer : MonoBehaviour
             distFromBeat         = System.Math.Max(0.0, distFromBeat);
 
             UpdateBeatState(distFromBeat);
-            UpdateIndicator((float)distFromBeat);
+            // UpdateIndicator runs in Update() at render frame-rate instead.
         }
+    }
+
+    // Visual-only: runs every rendered frame for finer DSP sampling.
+    void Update()
+    {
+        if (!begin) return;
+        double dsp           = AudioSettings.dspTime;
+        double timeSinceBeat = dsp - lastBeatDsp;
+        double timeUntilBeat = nextBeatDsp - dsp;
+        double distFromBeat  = System.Math.Min(System.Math.Abs(timeSinceBeat), timeUntilBeat);
+        distFromBeat         = System.Math.Max(0.0, distFromBeat);
+        UpdateIndicator((float)distFromBeat);
     }
 
     // Returns the DSP timestamp N beats from now (0 = next beat, 1 = beat after next, etc.)
@@ -205,40 +265,37 @@ public class BeatTimer : MonoBehaviour
         }
     }
 
-    // distFromBeat: 0 = on the beat → indicator at RIGHT, beatInterval/2 = furthest → indicator at LEFT
+    // distFromBeat: 0 = on the beat → all bars lit, beatInterval/2 = furthest from beat → no bars lit.
+    // A flat-top hold of peakHoldSeconds either side of the beat guarantees 100% is visible
+    // even when the render framerate cannot sample the exact zero-crossing.
     private void UpdateIndicator(float distFromBeat)
     {
-        // 1 when on the beat (RIGHT), 0 when beatInterval/2 away (LEFT). Smooth, no jumps.
-        float yoyo01 = Mathf.Clamp01(1f - distFromBeat / (beatInterval * 0.5f));
-        float x = beatIndLeftPos.x + barWidth * yoyo01;
-        beatIndicatorCurrent.position = new Vector3(x, beatIndicatorCurrent.position.y, 5f);
-    }
+        if (_barImages == null || _barImages.Length == 0) return;
 
-    // Repositions and resizes the 4 colored beat-zone squares to match the current toleranceDivisor.
-    // squareWorldWidth = (2 / toleranceDivisor) * barWidth, matching exactly 1 tolerance step each.
-    private void ResizeColorSquares()
-    {
-        if (perfectSquare == null || closeSquare == null || middleSquare == null || farSquare == null) return;
+        float halfInterval = beatInterval * 0.5f;
+        float hold         = Mathf.Clamp(peakHoldSeconds, 0f, halfInterval - 0.001f);
 
-        float squareWorldWidth = (2f / toleranceDivisor) * barWidth;
-        float rightEdge = beatIndLeftPos.x + barWidth;
-
-        RectTransform[] squares = { perfectSquare, closeSquare, middleSquare, farSquare };
-        for (int i = 0; i < squares.Length; i++)
+        float yoyo01;
+        if (distFromBeat <= hold)
         {
-            float squareLocalWidth = squareWorldWidth / squares[i].lossyScale.x;
-            squares[i].SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, squareLocalWidth);
-            float posX = rightEdge - squareWorldWidth * (i + 0.5f);
-            squares[i].position = new Vector3(posX, squares[i].position.y, squares[i].position.z);
+            // Inside the hold window — always show fully-filled bars.
+            yoyo01 = 1f;
         }
+        else
+        {
+            // Ramp from 1 (at hold boundary) down to 0 (at halfInterval).
+            yoyo01 = Mathf.Clamp01(1f - (distFromBeat - hold) / (halfInterval - hold));
+        }
+
+        int barsToShow = Mathf.RoundToInt(yoyo01 * _barImages.Length);
+        for (int i = 0; i < _barImages.Length; i++)
+            if (_barImages[i] != null) _barImages[i].gameObject.SetActive(i < barsToShow);
     }
 
-    // Sets difficulty by changing toleranceDivisor and refreshing the indicator squares.
     // Called by GameController before the game session starts; locked in once play begins.
     public void SetDifficulty(float divisor)
     {
         toleranceDivisor = divisor;
-        ResizeColorSquares();
     }
 
     public void ResetBeatCounter()

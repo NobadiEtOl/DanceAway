@@ -24,10 +24,10 @@ public class Player : MonoBehaviour
     private BeatTimer beatTimer;
     private Animator animator;
     private Dictionary<string, float> animationLengths;
-    private Animator beatStateAnimator;
     private Animator multTextAnimator;
     private Animator comboTextAnimator;
     private Animator scoreIncTextAnimator;
+    private Animator beatStateTextAnimator;
     private Rigidbody2D rb;
     public BeatState State { get; set; }
     private float tileSize;
@@ -37,6 +37,26 @@ public class Player : MonoBehaviour
     [SerializeField]private List<int> gridBoundsPlayer = new List<int>();// width lower(0)/upper(1), height lower(2)/upper(3)
     public float rotationSpeed = 5f; // Adjust speed as needed
     private Quaternion targetRotation;
+
+    private void PlayPlayerAnimation(string animationName)
+    {
+        Debug.LogError($"{{Moving aniamtion}} {animationName}");
+        animator.Play(animationName);
+    }
+
+    // Tracks the single active move-animation coroutine.
+    // Cancelling it before starting a new one prevents a stale coroutine
+    // from forcing "idle" over a freshly started move animation.
+    private Coroutine _moveAnimCoroutine;
+
+    private void StartMoveAnimation()
+    {
+        Debug.Log("Move() called — starting move animation");
+        if (_moveAnimCoroutine != null)
+            StopCoroutine(_moveAnimCoroutine);
+        _moveAnimCoroutine = StartCoroutine(ResetAnimation("Player_Moving"));
+    }
+
     void Start()
     {
         targetRotation = transform.rotation;
@@ -55,16 +75,16 @@ public class Player : MonoBehaviour
         transform.position = new Vector2(position.x * tileSize, position.y * tileSize);
         // Starting animation
         animator = GetComponent<Animator>();
-        beatStateAnimator = beatStateText.GetComponent<Animator>();
         multTextAnimator = multText.GetComponent<Animator>();
         scoreIncTextAnimator = scoreIncText.GetComponent<Animator>();
         comboTextAnimator = comboText.GetComponent<Animator>();
-        animator.Play("idle");
+        PlayPlayerAnimation("idle");
 
         beatStateText.text = "";
         multText.text="";
         scoreIncText.text="";
         beatStateText.gameObject.SetActive(false);
+        beatStateTextAnimator = beatStateText.GetComponent<Animator>();
 
         rb = GetComponent<Rigidbody2D>();
         health = maxHealth;
@@ -91,126 +111,134 @@ public class Player : MonoBehaviour
     private int mult;
     private int canHit;
     private int moveCombo=0;
-    public void Move(Vector2Int direction, bool pushed=false, BeatState? overrideState = null)
+    public void Move(Vector2Int direction, bool pushed=false, BeatState? overrideState = null, bool autoMove = false)
     {
-        Vector2Int newPosition;
-        State = (overrideState.HasValue && !pushed) ? overrideState.Value : beatTimer.state;
-        currentDirection = direction;// To use later if the player walks into a triangle.
-        crowdPushFlag = pushed;
+        Debug.Log($"[PlayerAnimationChecks] Move() called — dir={direction} pushed={pushed} autoMove={autoMove} overrideState={overrideState}");
 
-        bool validMove=true;
+        // ── State ─────────────────────────────────────────────────────────────
+        State            = (overrideState.HasValue && !pushed) ? overrideState.Value : beatTimer.state;
+        currentDirection = direction;
+        crowdPushFlag    = pushed;
 
-        // A crowd push always succeeds — bypass beat-timing and move-count checks
-        if (pushed)
+        // Pushed and auto-moves always succeed; normal moves require good timing
+        // and a reasonable move count within the beat window.
+        bool validMove = pushed || autoMove || !(State == BeatState.OffBeat || moveCount > 2);
+
+        Debug.Log($"[PlayerAnimationChecks] Move() state — State={State} validMove={validMove} moveCount={moveCount} takingDamage={takingDamage}");
+
+        // ── Target position ───────────────────────────────────────────────────
+        Vector2Int newPosition = validMove ? position + direction : position;
+
+        bool inBounds = newPosition.x >= gridBoundsPlayer[0] && newPosition.x < gridBoundsPlayer[1]
+                     && newPosition.y >= gridBoundsPlayer[2] && newPosition.y < gridBoundsPlayer[3];
+
+        // ── Path A: target is inside the playfield ────────────────────────────
+        if (crowdPushFlag || inBounds)
         {
-            validMove = true;
-        }
-        else if (State == BeatState.OffBeat || moveCount > 2)
-        {
-            validMove=false; // Ignore movement if in OffBeat
-        }
-
-        // Update newPosition if move is valid
-        if(validMove)newPosition = position + direction;
-        else newPosition = position;
-
-        // Check if the new position is within the grid bounds
-        if (crowdPushFlag || (newPosition.x >= gridBoundsPlayer[0] && newPosition.x < gridBoundsPlayer[1] && newPosition.y >= gridBoundsPlayer[2] && newPosition.y < gridBoundsPlayer[3]))
-        {
-            // Update logical position and apply force only when the move is valid
             if (validMove)
             {
                 position = newPosition;
-                rb.AddForce(direction*(int)(200*tileSize));
+                // Clamp so no movement — including crowd pushes — can leave the
+                // logical position outside the allowed playfield.
+                position.x = Mathf.Clamp(position.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+                position.y = Mathf.Clamp(position.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+                rb.AddForce((Vector2)direction * (200 * tileSize));
             }
 
-            // Pushed moves are silent — no score, no UI, no combo change
-            if (pushed)
-            {
-                moveCount++;
-                StartCoroutine(ResetAnimation("Player_Moving"));
-                return;
-            }
+            moveCount++;
 
-            int scoreIncrement = 0;
-            CheckForSpotlightCollision();// Find out how much mult is.
-            
-            moveCount++;// Only count moves if there are enemies.
-            moveCombo++;
-            if (State == BeatState.PerfectBeat)
+            // Pushed moves are silent — skip all score and UI logic.
+            if (!pushed)
             {
-                scoreIncrement = 200; // Perfect score threshold
-                beatStateText.text = "S";
-            }
-            else if (State == BeatState.CloseBeat)
-            {
-                scoreIncrement = 150; // Close score threshold
-                beatStateText.text = "A";
-            }
-            else if (State == BeatState.MiddleBeat)
-            {
-                scoreIncrement = 100; // Middle score threshold
-                beatStateText.text = "B";
-            }
-            else if (State == BeatState.FarBeat)
-            {
-                scoreIncrement = 50; // Far score threshold
-                beatStateText.text = "C";
-            }
-            else if (State == BeatState.OffBeat)
-            {
-                // Moving during off beat is punishing.
-                scoreIncrement=0;// Make a large score deduction.
-                beatStateText.text = "F";
-                StartCoroutine(WrongMove(direction));
-                moveCombo=0;
-            }
-            else
-            {
-                scoreIncrement = 0;
-                beatStateText.text = "WTF";
-            }
+                int scoreIncrement = 0;
+                CheckForSpotlightCollision();
 
-            int diffMult = gameController.GetDifficultyMultiplier();
-            scoreIncrement *= diffMult;
-            //Only one triangle with the highest powerLevel gets hit.
-            canHit = scoreIncrement*mult*(gameController.canStart ? 1 : 0);
-            HitWeakestTriangle(canHit);
+                if (autoMove)
+                {
+                    scoreIncrement     = 25;
+                    beatStateText.text = " ";
+                }
+                else
+                {
+                    moveCombo++;
+                    switch (State)
+                    {
+                        case BeatState.PerfectBeat:
+                            scoreIncrement = 200; beatStateText.text = "S"; break;
+                        case BeatState.CloseBeat:
+                            scoreIncrement = 150; beatStateText.text = "A"; break;
+                        case BeatState.MiddleBeat:
+                            scoreIncrement = 100; beatStateText.text = "B"; break;
+                        case BeatState.FarBeat:
+                            scoreIncrement =  50; beatStateText.text = "C"; break;
+                        case BeatState.OffBeat:
+                            scoreIncrement     = 0;
+                            beatStateText.text = "F";
+                            StartCoroutine(WrongMove(direction));
+                            moveCombo          = 0;
+                            break;
+                        default:
+                            scoreIncrement     = 0;
+                            beatStateText.text = "?";
+                            break;
+                    }
+                    beatStateTextAnimator.Play("BeatStateText", -1, 0f);
+                    scoreIncrement *= gameController.GetDifficultyMultiplier();
+                }
 
-            // Score only applies to valid (on-beat) moves
-            if(validMove)score += (scoreIncrement+ moveCombo)*mult;
-            scoreIncText.text = "+" + (scoreIncrement*mult).ToString();
+                canHit = scoreIncrement * mult * (gameController.canStart ? 1 : 0);
+                HitWeakestTriangle(canHit);
 
-            // Updating score and avarage
-            scoreText.text = score.ToString();
-            beatStateAnimator.Play("BeatStateText",-1,0f);
-            multTextAnimator.Play("MultText",-1,0f);
-            scoreIncTextAnimator.Play("ScoreIncText",-1,0f);
-            comboTextAnimator.Play("ComboText",-1,0f);
-            if (!gameController.lockAvarageAtMax) gameController.avarage += scoreIncrement;
-            multText.text = "x" + mult.ToString();
-            if(moveCombo!=0)comboText.text = "x" + moveCombo.ToString();
-            else comboText.text = "";
+                if (autoMove)
+                {
+                    if (validMove) score += 25;
+                    scoreIncText.text = "+25";
+                }
+                else
+                {
+                    if (validMove) score += (scoreIncrement + moveCombo) * mult;
+                    scoreIncText.text = "+" + (scoreIncrement * mult).ToString();
+                }
+
+                scoreText.text = score.ToString();
+                multTextAnimator.Play("MultText", -1, 0f);
+                scoreIncTextAnimator.Play("ScoreIncText", -1, 0f);
+                comboTextAnimator.Play("ComboText", -1, 0f);
+                if (!gameController.lockAvarageAtMax) gameController.avarage += scoreIncrement;
+                multText.text  = "x" + mult.ToString();
+                comboText.text = moveCombo != 0 ? "x" + moveCombo.ToString() : "";
+            }
         }
-        
-        //correction method so that the player does not get stuck outside of the current grid.
-        else if(position.x < gridBoundsPlayer[0] || position.x >= gridBoundsPlayer[1] || position.y < gridBoundsPlayer[2] || position.y >= gridBoundsPlayer[3])
+        // ── Path B: player is already outside the grid — nudge toward centre ──
+        else if (position.x < gridBoundsPlayer[0] || position.x >= gridBoundsPlayer[1]
+              || position.y < gridBoundsPlayer[2]  || position.y >= gridBoundsPlayer[3])
         {
-            var currentDistance = Vector2.Distance(position,new Vector2(4,4));
-            var newDistance = Vector2.Distance(newPosition,new Vector2(4,4));
-
-            if(newDistance <= currentDistance)
-            {
-                Move(direction,true);
-            }
+            float currentDist = Vector2.Distance(position, new Vector2(4, 4));
+            float newDist     = Vector2.Distance(newPosition, new Vector2(4, 4));
+            if (newDist <= currentDist)
+                Move(direction, pushed: true);
         }
-
+        // ── Path C: valid timing but direction leads out of bounds ─────────────
         else
         {
-            StartCoroutine(WrongMove(direction));
+            // Reflect the rebound off the crowd wall that was hit:
+            // flip only the axis (or axes) that went out of bounds.
+            // WrongMove will additionally clip the rebound if it would strike a
+            // second wall from the player's current position.
+            bool xOut = newPosition.x < gridBoundsPlayer[0] || newPosition.x >= gridBoundsPlayer[1];
+            bool yOut = newPosition.y < gridBoundsPlayer[2] || newPosition.y >= gridBoundsPlayer[3];
+            Vector2 reflectDir = new Vector2(xOut ? -direction.x : direction.x,
+                                             yOut ? -direction.y : direction.y);
+            StartCoroutine(WrongMove((Vector2)direction, reflectDir));
         }
 
-        StartCoroutine(ResetAnimation("Player_Moving"));
+        // ── Animation — single authority, always reached ──────────────────────
+        // StartMoveAnimation() cancels any stale reset coroutine before starting
+        // a fresh one, so an older coroutine can never force "idle" over a newer
+        // move animation.
+        Debug.Log("sagfadf");
+        StartMoveAnimation();
+        Debug.Log($"[PlayerAnimationChecks] StartMoveAnimation() called at end of Move()");
     }
 
     private void ResetMove()
@@ -249,25 +277,34 @@ public class Player : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, 6f);
     }
 
-    private IEnumerator WrongMove(Vector2 direction)
+    private IEnumerator WrongMove(Vector2 direction, Vector2? reboundDirection = null)
     {
         //Making the player move back and forth for a wrong move
-        rb.AddForce(direction*(int)(200*tileSize));
+        rb.AddForce(direction * (200 * tileSize));
 
         yield return new WaitForSeconds(beatTimer.beatInterval/4);
 
-        rb.AddForce(-direction*(int)(200*tileSize));
+        // Clip the rebound so it never pushes toward a second crowd wall.
+        // This check uses the logical grid position, so it covers all callers
+        // (crowd-bounce, off-beat penalty, etc.) without going through Move().
+        Vector2 rebound = reboundDirection ?? -direction;
+        Vector2Int reboundTarget = position + new Vector2Int(Mathf.RoundToInt(rebound.x), Mathf.RoundToInt(rebound.y));
+        if (reboundTarget.x < gridBoundsPlayer[0] || reboundTarget.x >= gridBoundsPlayer[1]) rebound.x = 0;
+        if (reboundTarget.y < gridBoundsPlayer[2] || reboundTarget.y >= gridBoundsPlayer[3]) rebound.y = 0;
+        rb.AddForce(rebound * (200 * tileSize));
     }
 
     private IEnumerator ResetAnimation(string animationName)
     {
-        if(!takingDamage)animator.Play(animationName);
+        Debug.Log($"[PlayerAnimationChecks] ResetAnimation('{animationName}') — takingDamage={takingDamage} animator={(animator == null ? "NULL" : animator.name)}");
+        if(!takingDamage)PlayPlayerAnimation(animationName);
+        else Debug.Log("[PlayerAnimationChecks] Animation SKIPPED — takingDamage is true");
 
         float animationLength = animationLengths.ContainsKey(animationName) ? animationLengths[animationName] : 0.4f;
 
         yield return new WaitForSeconds(animationLength);
 
-        if(!takingDamage)animator.Play("idle");
+        if(!takingDamage)PlayPlayerAnimation("idle");
     }
 
     private void HitWeakestTriangle(int damage)
@@ -329,22 +366,22 @@ public class Player : MonoBehaviour
     private bool takingDamage = false;
     private IEnumerator DamageTaken()
     {
-        animator.Play("Player_Damage");
+        PlayPlayerAnimation("Player_Damage");
         takingDamage = true;
 
         yield return new WaitForSeconds(beatTimer.beatInterval);
 
-        animator.Play("idle");
+        PlayPlayerAnimation("idle");
         takingDamage=false;
     }
     private IEnumerator HealTaken()
     {
-        animator.Play("Player_Heal");
+        PlayPlayerAnimation("Player_Heal");
         takingDamage = true;
 
         yield return new WaitForSeconds(beatTimer.beatInterval);
 
-        animator.Play("idle");
+        PlayPlayerAnimation("idle");
         takingDamage=false;
     }
 
@@ -368,28 +405,44 @@ public class Player : MonoBehaviour
 
     }
 
+    /// <summary>
+    /// Updates the player's facing direction in real-time (e.g. from a held joystick)
+    /// without triggering a move.  The smooth rotation lerp in FixedUpdate handles the visual.
+    /// </summary>
+    public void SetFacingDirection(Vector2Int dir)
+    {
+        if      (dir == new Vector2Int( 0,  1)) targetRotation = Quaternion.Euler(0, 0,   0);
+        else if (dir == new Vector2Int( 1,  1)) targetRotation = Quaternion.Euler(0, 0, 315);
+        else if (dir == new Vector2Int( 1,  0)) targetRotation = Quaternion.Euler(0, 0, 270);
+        else if (dir == new Vector2Int( 1, -1)) targetRotation = Quaternion.Euler(0, 0, 225);
+        else if (dir == new Vector2Int( 0, -1)) targetRotation = Quaternion.Euler(0, 0, 180);
+        else if (dir == new Vector2Int(-1, -1)) targetRotation = Quaternion.Euler(0, 0, 135);
+        else if (dir == new Vector2Int(-1,  0)) targetRotation = Quaternion.Euler(0, 0,  90);
+        else if (dir == new Vector2Int(-1,  1)) targetRotation = Quaternion.Euler(0, 0,  45);
+    }
+
     public void HandleInput()
     {
         if (hasDied) return;
 
         if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.UpArrow))
         {
-            targetRotation = Quaternion.Euler(0, 0, 0);
+            SetFacingDirection(Vector2Int.up);
             Move(Vector2Int.up);
         }
         else if (Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.DownArrow))
         {
-            targetRotation = Quaternion.Euler(0, 0, 180);
+            SetFacingDirection(Vector2Int.down);
             Move(Vector2Int.down);
         }
         else if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))
         {
-            targetRotation = Quaternion.Euler(0, 0, 90);
+            SetFacingDirection(Vector2Int.left);
             Move(Vector2Int.left);
         }
         else if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))
         {
-            targetRotation = Quaternion.Euler(0, 0, 270);
+            SetFacingDirection(Vector2Int.right);
             Move(Vector2Int.right);
         }
     }

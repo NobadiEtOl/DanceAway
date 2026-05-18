@@ -3,221 +3,176 @@ using System.Collections.Generic;
 using UnityEngine;
 using Common.Enums;
 
-public class SwipeController : MonoBehaviour
+public class SwipeController : MonoBehaviour, IControlModule
 {
-    [SerializeField]private Player player;
-    private Vector2 startTouchPosition, endTouchPosition;
-    private bool isSwipe;
-    private BeatState capturedBeatState;
-    private float swipeStartTime;
-    
-    [SerializeField] private float minSwipeDistance = 50f; // Minimum swipe distance in pixels
+    [SerializeField] private Player player;
+    [SerializeField] private float minSwipeDistance = 50f;
     [SerializeField] private RectTransform swipeArea;
-    private RectTransform swipeAreaRectTransform;
-    private Camera swipeEventCamera;
+
+    private RectTransform _swipeAreaRt;
+    private Camera        _swipeCamera;
+
+    // ── Gesture state (Idle → Armed → Consumed → Idle) ────────────────────────
+    private enum GestureState { Idle, Armed, Consumed }
+    private GestureState _gesture = GestureState.Idle;
+
+    private Vector2   _touchStart;
+    private float     _touchStartTime;
+    private BeatState _capturedBeatState;
+    private int       _lastMoveBeat = int.MinValue;
+    // ─────────────────────────────────────────────────────────────────────────
 
     void Start()
     {
-        // Use an explicitly assigned area if provided; otherwise use this object's RectTransform.
-        swipeAreaRectTransform = swipeArea != null ? swipeArea : GetComponent<RectTransform>();
-
-        Canvas parentCanvas = swipeAreaRectTransform != null ? swipeAreaRectTransform.GetComponentInParent<Canvas>() : null;
-        if (parentCanvas != null)
-        {
-            // Overlay canvases must use null camera for correct screen-point checks.
-            swipeEventCamera = parentCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : parentCanvas.worldCamera;
-        }
-        else
-        {
-            swipeEventCamera = Camera.main;
-        }
+        _swipeAreaRt = swipeArea != null ? swipeArea : GetComponent<RectTransform>();
+        RefreshCamera();
     }
 
-    void Update()
+    public void Initialize(GameController gc)
     {
-        DetectSwipe();
+        if (gc != null) player = gc.player;
     }
+
+    public void SetSwipeArea(RectTransform area)
+    {
+        swipeArea    = area;
+        _swipeAreaRt = area != null ? area : GetComponent<RectTransform>();
+        RefreshCamera();
+    }
+
+    void Update() => DetectSwipe();
+
+    // ── Input routing ─────────────────────────────────────────────────────────
 
     private void DetectSwipe()
     {
         if (Input.touchCount > 0)
         {
-            Touch touch = Input.GetTouch(0);
+            ProcessTouch(Input.GetTouch(0));
+            return;
+        }
+        ProcessMouse();
+    }
 
-            switch (touch.phase)
-            {
-                case TouchPhase.Began:
-                    // Check if the touch started within the swipe area (UI RectTransform)
-                    if (IsWithinSwipeArea(touch.position))
-                    {
-                        startTouchPosition = touch.position;
-                        isSwipe = true;
-                        capturedBeatState = GameController.beatTimer.state;
-                        swipeStartTime = Time.time;
-                    }
-                    break;
+    private void ProcessTouch(Touch t)
+    {
+        switch (t.phase)
+        {
+            case TouchPhase.Began:
+                TryArm(t.position);
+                break;
 
-                case TouchPhase.Moved:
-                    if (isSwipe)
-                    {
-                        endTouchPosition = touch.position;
-                        if (Vector2.Distance(startTouchPosition, endTouchPosition) >= minSwipeDistance)
-                        {
-                            DetectSwipeDirection();
-                            isSwipe = false;
-                        }
-                    }
-                    break;
+            case TouchPhase.Stationary:
+                CheckExpiry();
+                break;
 
-                case TouchPhase.Ended:
-                case TouchPhase.Canceled:
-                    isSwipe = false;
-                    break;
-            }
+            case TouchPhase.Moved:
+                CheckExpiry();
+                if (_gesture == GestureState.Armed)
+                    TryFire(t.position);
+                break;
 
+            case TouchPhase.Ended:
+            case TouchPhase.Canceled:
+                _gesture = GestureState.Idle;
+                break;
+        }
+    }
+
+    private void ProcessMouse()
+    {
+        // Up resets first — a same-frame down+up correctly produces no move.
+        if (Input.GetMouseButtonUp(0))
+        {
+            _gesture = GestureState.Idle;
             return;
         }
 
-        DetectMouseSwipe();
-    }
-
-    private void DetectMouseSwipe()
-    {
         if (Input.GetMouseButtonDown(0))
+            TryArm(Input.mousePosition);
+
+        // Re-evaluate state after TryArm; also covers frames where button was
+        // already held from a previous frame.
+        if (Input.GetMouseButton(0) && _gesture == GestureState.Armed)
         {
-            if (IsWithinSwipeArea(Input.mousePosition))
-            {
-                startTouchPosition = Input.mousePosition;
-                isSwipe = true;
-                capturedBeatState = GameController.beatTimer.state;
-                swipeStartTime = Time.time;
-            }
-        }
-        else if (Input.GetMouseButton(0) && isSwipe)
-        {
-            endTouchPosition = Input.mousePosition;
-            if (Vector2.Distance(startTouchPosition, endTouchPosition) >= minSwipeDistance)
-            {
-                DetectSwipeDirection();
-                isSwipe = false;
-            }
-        }
-        else if (Input.GetMouseButtonUp(0))
-        {
-            isSwipe = false;
+            CheckExpiry();
+            if (_gesture == GestureState.Armed)   // still armed after expiry check
+                TryFire(Input.mousePosition);
         }
     }
 
-    private bool IsWithinSwipeArea(Vector2 screenPosition)
+    // ── Gesture helpers ───────────────────────────────────────────────────────
+
+    /// Arms the gesture. Only transitions from Idle.
+    private void TryArm(Vector2 pos)
     {
-        if (swipeAreaRectTransform == null)
-        {
-            return true;
-        }
+        if (_gesture != GestureState.Idle || !IsWithinSwipeArea(pos))
+            return;
 
-        return RectTransformUtility.RectangleContainsScreenPoint(swipeAreaRectTransform, screenPosition, swipeEventCamera);
+        _touchStart        = pos;
+        _touchStartTime    = Time.time;
+        _capturedBeatState = GameController.beatTimer.state;
+        _gesture           = GestureState.Armed;
     }
 
-    private void DetectSwipeDirection()
+    /// Expires the gesture if it has lived too long. Transitions Armed → Consumed.
+    private void CheckExpiry()
     {
-        // Use the beat state captured at swipe start. If the gesture took longer than half
-        // a beat interval the capture is stale — fall back to the live state instead.
-        bool stale = (Time.time - swipeStartTime) > (GameController.beatTimer.beatInterval * 0.5f);
-        BeatState? stateOverride = stale ? (BeatState?)null : capturedBeatState;
-
-        Vector2 swipeDirection = endTouchPosition - startTouchPosition;
-        float x = swipeDirection.x;
-        float y = swipeDirection.y;
-
-        float angleInDegrees = Mathf.Atan2(y, x) * Mathf.Rad2Deg;
-
-        if(20 <= Mathf.Abs(angleInDegrees) && Mathf.Abs(angleInDegrees) <= 70)
+        if (_gesture == GestureState.Armed &&
+            Time.time - _touchStartTime > GameController.beatTimer.beatInterval * 0.5f)
         {
-            if(angleInDegrees > 0)
-            {
-                if (isSwipe)
-                {
-                    player.Move(Vector2Int.right, overrideState: stateOverride);
-                    player.Move(Vector2Int.up, overrideState: stateOverride);
-                    player.transform.eulerAngles = new Vector3(0,0,0);
-                }
-            }
-            else
-            {
-                if (isSwipe)
-                {
-                    player.Move(Vector2Int.right, overrideState: stateOverride);
-                    player.Move(Vector2Int.down, overrideState: stateOverride);
-                    player.transform.eulerAngles = new Vector3(0,0,180);
-                }
-            }
-        }
-        else if(110 <= Mathf.Abs(angleInDegrees) && Mathf.Abs(angleInDegrees) <= 160)
-        {
-            if(angleInDegrees > 0)
-            {
-                if (isSwipe)
-                {
-                    player.Move(Vector2Int.left, overrideState: stateOverride);
-                    player.Move(Vector2Int.up, overrideState: stateOverride);
-                    player.transform.eulerAngles = new Vector3(0,0,0);
-                }
-            }
-            else
-            {
-                if (isSwipe)
-                {
-                    player.Move(Vector2Int.left, overrideState: stateOverride);
-                    player.Move(Vector2Int.down, overrideState: stateOverride);
-                    player.transform.eulerAngles = new Vector3(0,0,180);
-                }
-            }
-        }
-
-        else
-        {
-            if (Mathf.Abs(x) > Mathf.Abs(y))
-            {
-                if (x > 0)
-                {
-                    //Debug.Log("Swipe Right");
-                    if (isSwipe)
-                    {
-                        player.Move(Vector2Int.right, overrideState: stateOverride);
-                        player.transform.eulerAngles = new Vector3(0,0,270);
-                    }
-                }
-                else
-                {
-                    //Debug.Log("Swipe Left");
-                    if (isSwipe)
-                    {
-                        player.Move(Vector2Int.left, overrideState: stateOverride);
-                        player.transform.eulerAngles = new Vector3(0,0,90);
-                    }
-                }
-            }
-            else
-            {
-                if (y > 0)
-                {
-                    //Debug.Log("Swipe Up");
-                    if (isSwipe)
-                    {
-                        player.Move(Vector2Int.up, overrideState: stateOverride);
-                        player.transform.eulerAngles = new Vector3(0,0,0);
-                    }
-                }
-                else
-                {
-                    //Debug.Log("Swipe Down");
-                    if (isSwipe)
-                    {
-                        player.Move(Vector2Int.down, overrideState: stateOverride);
-                        player.transform.eulerAngles = new Vector3(0,0,180);
-                    }
-                }
-            }
+            _gesture = GestureState.Consumed;
         }
     }
+
+    /// Fires a move when the swipe distance threshold is met.
+    /// Sets Consumed BEFORE dispatching — impossible to fire twice per gesture.
+    private void TryFire(Vector2 currentPos)
+    {
+        if (Vector2.Distance(_touchStart, currentPos) < minSwipeDistance)
+            return;
+
+        _gesture = GestureState.Consumed; // ← dead from this moment, even if Move throws
+
+        if (GameController.beatTimer.beatCounter == _lastMoveBeat)
+            return; // already moved this beat
+
+        Vector2 swipeDir = currentPos - _touchStart;
+        float   angle    = Mathf.Atan2(swipeDir.y, swipeDir.x) * Mathf.Rad2Deg;
+        int     sector   = (int)Mathf.Round(angle / 45f);
+        sector = ((sector % 8) + 8) % 8;
+
+        Vector2Int dir = SectorDirections[sector];
+        player.SetFacingDirection(dir);
+        player.Move(dir, overrideState: _capturedBeatState);
+        _lastMoveBeat = GameController.beatTimer.beatCounter;
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private bool IsWithinSwipeArea(Vector2 screenPos)
+    {
+        if (_swipeAreaRt == null) return true;
+        return RectTransformUtility.RectangleContainsScreenPoint(_swipeAreaRt, screenPos, _swipeCamera);
+    }
+
+    private void RefreshCamera()
+    {
+        Canvas c = _swipeAreaRt != null ? _swipeAreaRt.GetComponentInParent<Canvas>() : null;
+        _swipeCamera = (c != null && c.renderMode != RenderMode.ScreenSpaceOverlay)
+            ? c.worldCamera
+            : null;
+    }
+
+    private static readonly Vector2Int[] SectorDirections =
+    {
+        new Vector2Int( 1,  0),  // 0: E
+        new Vector2Int( 1,  1),  // 1: NE
+        new Vector2Int( 0,  1),  // 2: N
+        new Vector2Int(-1,  1),  // 3: NW
+        new Vector2Int(-1,  0),  // 4: W
+        new Vector2Int(-1, -1),  // 5: SW
+        new Vector2Int( 0, -1),  // 6: S
+        new Vector2Int( 1, -1),  // 7: SE
+    };
 }
