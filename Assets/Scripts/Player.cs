@@ -35,6 +35,8 @@ public class Player : MonoBehaviour
     private Vector2Int currentDirection;
     //[SerializeField]private List<int> gridBounds = new List<int>();// width lower(0)/upper(1), height lower(2)/upper(3)
     [SerializeField]private List<int> gridBoundsPlayer = new List<int>();// width lower(0)/upper(1), height lower(2)/upper(3)
+    /// <summary>Set to true by IntroSequenceController during the walk so bounds-clamping is skipped.</summary>
+    public bool introMode = false;
     public float rotationSpeed = 5f; // Adjust speed as needed
     private Quaternion targetRotation;
 
@@ -48,6 +50,27 @@ public class Player : MonoBehaviour
     // Cancelling it before starting a new one prevents a stale coroutine
     // from forcing "idle" over a freshly started move animation.
     private Coroutine _moveAnimCoroutine;
+
+    // ── Force lock ────────────────────────────────────────────────────────────
+    // Only one rb.AddForce displacement is allowed at a time. Once Move() begins
+    // executing, _forceLocked is true for beatInterval/2. Any concurrent Move()
+    // call returns immediately (position unchanged, no score, no force).
+    private bool _forceLocked = false;
+    private Coroutine _forceLockCoroutine;
+
+    private void StartForceLock()
+    {
+        if (_forceLockCoroutine != null) StopCoroutine(_forceLockCoroutine);
+        _forceLockCoroutine = StartCoroutine(ForceLockTimer());
+        _forceLocked = true;
+    }
+
+    private IEnumerator ForceLockTimer()
+    {
+        yield return new WaitForSeconds(beatTimer.beatInterval / 2f);
+        _forceLocked = false;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void StartMoveAnimation()
     {
@@ -113,6 +136,11 @@ public class Player : MonoBehaviour
     private int moveCombo=0;
     public void Move(Vector2Int direction, bool pushed=false, BeatState? overrideState = null, bool autoMove = false)
     {
+        // Force lock: drop this call entirely if a displacement is already in progress.
+        // Prevents stacking forces from multiple enemies, crowd bounces, and player input.
+        if (_forceLocked) return;
+        StartForceLock();
+
         Debug.Log($"[PlayerAnimationChecks] Move() called — dir={direction} pushed={pushed} autoMove={autoMove} overrideState={overrideState}");
 
         // ── State ─────────────────────────────────────────────────────────────
@@ -137,12 +165,23 @@ public class Player : MonoBehaviour
         {
             if (validMove)
             {
+                Vector2Int preMovePosition = position;
                 position = newPosition;
                 // Clamp so no movement — including crowd pushes — can leave the
                 // logical position outside the allowed playfield.
-                position.x = Mathf.Clamp(position.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
-                position.y = Mathf.Clamp(position.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
-                rb.AddForce((Vector2)direction * (200 * tileSize));
+                // Skip clamping during the intro walk (player is outside the arena).
+                if (!introMode)
+                {
+                    position.x = Mathf.Clamp(position.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+                    position.y = Mathf.Clamp(position.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+                }
+                // Phase 3: only apply force on axes that actually moved after clamping,
+                // so a crowd-push that gets clamped never fires force toward the wall.
+                Vector2Int actualDelta = position - preMovePosition;
+                Vector2 forceDir = new Vector2(
+                    actualDelta.x != 0 ? direction.x : 0,
+                    actualDelta.y != 0 ? direction.y : 0);
+                rb.AddForce(forceDir * (200 * tileSize));
             }
 
             moveCount++;
@@ -221,15 +260,39 @@ public class Player : MonoBehaviour
         // ── Path C: valid timing but direction leads out of bounds ─────────────
         else
         {
-            // Reflect the rebound off the crowd wall that was hit:
-            // flip only the axis (or axes) that went out of bounds.
-            // WrongMove will additionally clip the rebound if it would strike a
-            // second wall from the player's current position.
             bool xOut = newPosition.x < gridBoundsPlayer[0] || newPosition.x >= gridBoundsPlayer[1];
             bool yOut = newPosition.y < gridBoundsPlayer[2] || newPosition.y >= gridBoundsPlayer[3];
-            Vector2 reflectDir = new Vector2(xOut ? -direction.x : direction.x,
-                                             yOut ? -direction.y : direction.y);
-            StartCoroutine(WrongMove((Vector2)direction, reflectDir));
+            // Slide visually toward the crowd the player tried to enter.
+            rb.AddForce((Vector2)direction * (200 * tileSize));
+            if (xOut && yOut)
+            {
+                // True corner hit: both axes lead into crowd.
+                // Fire a full rebound force on both axes (same timing as single-wall)
+                // so the player visually bounces off the corner, then snap to the exact
+                // tile slightly later to prevent physics drift.
+                Vector2 reboundForce = new Vector2(
+                    -direction.x * (200 * tileSize),
+                    -direction.y * (200 * tileSize));
+                StartCoroutine(DelayedForce(reboundForce, beatTimer.beatInterval / 4f, bypassLock: true));
+                Vector2 cornerTilePos = new Vector2(position.x * tileSize, position.y * tileSize);
+                StartCoroutine(DelayedSnap(cornerTilePos, beatTimer.beatInterval / 2f));
+            }
+            else
+            {
+                // Single-wall hit: only rebound the axis that was blocked.
+                // The unobstructed axis gets zero rebound so the bounce never carries
+                // the player into a perpendicular crowd wall.
+                // Update the logical position on the free axis so it matches where
+                // the player actually ends up after the visual slide.
+                if (!xOut) position.x = Mathf.Clamp(position.x + direction.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+                if (!yOut) position.y = Mathf.Clamp(position.y + direction.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+
+                Vector2 reboundForce = new Vector2(
+                    xOut ? -direction.x * (200 * tileSize) : 0f,
+                    yOut ? -direction.y * (200 * tileSize) : 0f);
+                if (reboundForce != Vector2.zero)
+                    StartCoroutine(DelayedForce(reboundForce, beatTimer.beatInterval / 4f, bypassLock: true));
+            }
         }
 
         // ── Animation — single authority, always reached ──────────────────────
@@ -239,6 +302,8 @@ public class Player : MonoBehaviour
         Debug.Log("sagfadf");
         StartMoveAnimation();
         Debug.Log($"[PlayerAnimationChecks] StartMoveAnimation() called at end of Move()");
+        // Debug visualizer: keep the black tile in sync with the logical position.
+        gameController?.UpdateDebugTilePos(position);
     }
 
     private void ResetMove()
@@ -279,19 +344,50 @@ public class Player : MonoBehaviour
 
     private IEnumerator WrongMove(Vector2 direction, Vector2? reboundDirection = null)
     {
-        //Making the player move back and forth for a wrong move
-        rb.AddForce(direction * (200 * tileSize));
+        // Don't fight an ongoing knockback push — the push force is already in flight
+        // and a rebound here would cancel it, leaving the rb at the old tile while
+        // the logical position has already moved to the pushed tile.
+        if (takingDamage) yield break;
+
+        // Phase 2: clip the initial push so it never fires toward the crowd.
+        // Only apply force on axes where position + direction is still in bounds.
+        Vector2Int testPos = position + new Vector2Int(Mathf.RoundToInt(direction.x), Mathf.RoundToInt(direction.y));
+        Vector2 clippedDir = new Vector2(
+            (testPos.x < gridBoundsPlayer[0] || testPos.x >= gridBoundsPlayer[1]) ? 0 : direction.x,
+            (testPos.y < gridBoundsPlayer[2] || testPos.y >= gridBoundsPlayer[3]) ? 0 : direction.y);
+        if (clippedDir != Vector2.zero)
+            rb.AddForce(clippedDir * (200 * tileSize));
 
         yield return new WaitForSeconds(beatTimer.beatInterval/4);
 
         // Clip the rebound so it never pushes toward a second crowd wall.
-        // This check uses the logical grid position, so it covers all callers
-        // (crowd-bounce, off-beat penalty, etc.) without going through Move().
         Vector2 rebound = reboundDirection ?? -direction;
         Vector2Int reboundTarget = position + new Vector2Int(Mathf.RoundToInt(rebound.x), Mathf.RoundToInt(rebound.y));
         if (reboundTarget.x < gridBoundsPlayer[0] || reboundTarget.x >= gridBoundsPlayer[1]) rebound.x = 0;
         if (reboundTarget.y < gridBoundsPlayer[2] || reboundTarget.y >= gridBoundsPlayer[3]) rebound.y = 0;
         rb.AddForce(rebound * (200 * tileSize));
+    }
+
+    /// <summary>Waits <paramref name="delay"/> seconds then applies a raw physics force.
+    /// Used for crowd-wall bounce-back — logical position is intentionally NOT changed
+    /// so the player stays on their current tile after the visual bounce.
+    /// Pass <paramref name="bypassLock"/> = true for the second phase of a crowd bounce
+    /// so the rebound fires even while the force lock is active.</summary>
+    private IEnumerator DelayedForce(Vector2 force, float delay, bool bypassLock = false)
+    {
+        yield return new WaitForSeconds(delay);
+        if (!bypassLock && _forceLocked) yield break;
+        rb.AddForce(force);
+    }
+
+    /// <summary>Waits <paramref name="delay"/> seconds then zeroes velocity and snaps the
+    /// Rigidbody to <paramref name="targetPos"/>. Used for corner bounces where force-based
+    /// reflection would push the player away from the corner tile.</summary>
+    private IEnumerator DelayedSnap(Vector2 targetPos, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        rb.velocity = Vector2.zero;
+        rb.position = targetPos; // direct set — takes effect immediately, not deferred to FixedUpdate
     }
 
     private IEnumerator ResetAnimation(string animationName)
@@ -328,22 +424,21 @@ public class Player : MonoBehaviour
     }
 
     private bool hasDied=false;
+    // Phase 4: hitDir is the direction to push the player away from the enemy;
+    // falls back to -currentDirection when not provided (e.g. non-triangle damage).
     public void TakeDamage(int damage)
     {
         if(!takingDamage)
         {
             health -= damage;
-            gameController.LessNodders(40);// Decrease the number of cTriangles Nodding.
+            gameController.LessNodders(40);
             healthSlider.value = health;
-            Move(-currentDirection);
             if (health <= 0 && !hasDied)
             {
-                // Handle player death
                 Debug.Log("Player has died");
                 gameController.OpenEndScreen();
                 hasDied=true;
             }
-
             StartCoroutine(DamageTaken());
         }
     }
@@ -362,6 +457,9 @@ public class Player : MonoBehaviour
         StartCoroutine(HealTaken());
         
     }
+
+    // Triangles that have already dealt damage this contact; cleared when they separate.
+    private HashSet<Triangle> _immuneTriangles = new HashSet<Triangle>();
 
     private bool takingDamage = false;
     private IEnumerator DamageTaken()
@@ -394,7 +492,13 @@ public class Player : MonoBehaviour
             Triangle triangle;
             if(Triangle.cachedTriangles.TryGetValue(other.gameObject, out triangle))
             {
-                TakeDamage(triangle.powerLevel);
+                // Only deal damage if this triangle hasn't hit the player since they last
+                // separated — prevents repeated hits while they are overlapping.
+                if (!_immuneTriangles.Contains(triangle))
+                {
+                    _immuneTriangles.Add(triangle);
+                    TakeDamage(triangle.powerLevel);
+                }
             }
         }
 
@@ -402,7 +506,19 @@ public class Player : MonoBehaviour
         {
             gameController.CollectHeart(other.gameObject);
         }
+    }
 
+    void OnTriggerExit2D(Collider2D other)
+    {
+        if(other.CompareTag("Triangle"))
+        {
+            Triangle triangle;
+            if(Triangle.cachedTriangles.TryGetValue(other.gameObject, out triangle))
+            {
+                // Player and triangle have separated — allow damage again on re-contact.
+                _immuneTriangles.Remove(triangle);
+            }
+        }
     }
 
     /// <summary>

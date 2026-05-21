@@ -41,6 +41,9 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     private Vector2    _heldScreenPos   = Vector2.zero;
     // Set by a tap so the very next HandleOnBeat skips auto-move (prevents double-moving).
     private bool       _movedThisBeat   = false;
+    // Locked after any valid move (tap or auto); cleared by HandleOnBeat at the next beat.
+    // Prevents mid-animation tap inputs from firing a second move.
+    private bool       _moveLocked      = false;
 
     // PC mouse fallback
     private const int MouseFingerId = 97;
@@ -72,14 +75,21 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
 
     private void OnEnable()
     {
+        _moveLocked = false;
         if (GameController.beatTimer != null)
-            GameController.beatTimer.OnBeat += HandleOnBeat;
+        {
+            GameController.beatTimer.OnBeat  += HandleOnBeat;
+            GameController.beatTimer.OffBeat += HandleOffBeat;
+        }
     }
 
     private void OnDisable()
     {
         if (GameController.beatTimer != null)
-            GameController.beatTimer.OnBeat -= HandleOnBeat;
+        {
+            GameController.beatTimer.OnBeat  -= HandleOnBeat;
+            GameController.beatTimer.OffBeat -= HandleOffBeat;
+        }
         ResetTouch();
     }
 
@@ -97,20 +107,26 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     }
 
     // =========================================================================
-    // Beat handler — auto-move while holding
+    // Beat handlers — cycle reset on OnBeat, auto-move on OffBeat
     // =========================================================================
 
+    /// <summary>Resets per-cycle state at the start of each beat, opening the window for new input.</summary>
     private void HandleOnBeat()
     {
-        // Consume the tap-guard first so it resets even if we return early.
-        bool alreadyMoved = _movedThisBeat;
         _movedThisBeat = false;
+        _moveLocked    = false;
+    }
 
+    /// <summary>
+    /// Fires when the beat state transitions from FarBeat → OffBeat (the scoring window closes).
+    /// If the player is still holding a direction and hasn't already moved this cycle,
+    /// auto-move in that direction — matching the joystick's OffBeat auto-move behaviour.
+    /// </summary>
+    private void HandleOffBeat()
+    {
         if (_gc == null || !_gc.canStart || _gc.introRunning) return;
         if (!_isHolding) return;
-        // A tap already moved the player in this beat window — skip the auto-move
-        // so the player never travels more than one tile per beat.
-        if (alreadyMoved) return;
+        if (_movedThisBeat) return;
 
         // Recompute direction from the live finger position at beat time so the
         // move always reflects where the finger actually is, not a cached value.
@@ -145,7 +161,7 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
                     _heldScreenPos  = screenPos;
                     Vector2Int dir  = ComputeDirection(screenPos);
                     _heldDirection  = dir;
-                    if (dir != Vector2Int.zero)
+                    if (dir != Vector2Int.zero && !_moveLocked)
                         ExecuteImmediate(dir);
                 }
                 break;
@@ -177,8 +193,13 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     /// <summary>Immediate tap — goes through the regular beat-timing scoring flow.</summary>
     private void ExecuteImmediate(Vector2Int dir)
     {
+        // Guard: if the player already moved in this beat window (e.g. a previous tap
+        // whose ResetTouch did NOT clear _movedThisBeat), swallow the input so only
+        // one move ever fires per beat.
+        if (_movedThisBeat) return;
         Debug.Log($"[PlayerAnimationChecks] ArrowKeys ExecuteImmediate — dir={dir}");
         _movedThisBeat = true; // Prevent HandleOnBeat from also moving on this beat.
+        _moveLocked    = true; // Block further taps until the next beat unlocks input.
         _player.SetFacingDirection(dir);
         _player.Move(dir);
     }
@@ -187,6 +208,7 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     private void ExecuteAutoMove(Vector2Int dir)
     {
         Debug.Log($"[PlayerAnimationChecks] ArrowKeys ExecuteAutoMove — dir={dir}");
+        _moveLocked = true; // Lock until the next beat so tap input during animation is ignored.
         _player.SetFacingDirection(dir);
         _player.Move(dir, autoMove: true);
     }
@@ -241,7 +263,10 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
         _isHolding      = false;
         _heldDirection  = Vector2Int.zero;
         _heldScreenPos  = Vector2.zero;
-        _movedThisBeat  = false;
+        // _movedThisBeat is intentionally NOT reset here.
+        // It must only be cleared by HandleOnBeat() at the start of the next beat
+        // so that lifting and re-tapping within the same beat window cannot fire a
+        // second move and desync the logical tile from the physics position.
         _mouseActive    = false;
     }
 
@@ -262,7 +287,7 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
                 _heldScreenPos  = mpos;
                 Vector2Int dir  = ComputeDirection(mpos);
                 _heldDirection  = dir;
-                if (dir != Vector2Int.zero)
+                if (dir != Vector2Int.zero && !_moveLocked)
                     ExecuteImmediate(dir);
             }
         }

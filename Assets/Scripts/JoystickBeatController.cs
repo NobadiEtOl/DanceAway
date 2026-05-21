@@ -60,6 +60,11 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
     // Prevents the OffBeat auto-move from firing after the beat button was already pressed.
     private bool moveExecutedThisCycle;
 
+    // True from the moment any valid move fires until the next OnBeat.
+    // Blocks all beat-button input while the player is animating to the new tile,
+    // preventing mid-animation presses from causing a tile/model position desync.
+    private bool _moveLocked;
+
     // PC mouse / keyboard emulation
     private const int MouseJoystickId    = 97;
     private bool      mouseJoystickActive;
@@ -99,6 +104,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
 
     private void OnEnable()
     {
+        _moveLocked = false;  // ensure fresh state when the module is enabled
         ResetJoystick();
         if (beatZonePulse != null) beatZonePulse.enabled = true;
         if (GameController.beatTimer != null)
@@ -186,7 +192,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
                 else
                 {
                     // Beat button side: tap executes the current move.
-                    if (currentDirection != Vector2Int.zero)
+                    if (currentDirection != Vector2Int.zero && !_moveLocked)
                     {
                         capturedBeatState = GameController.beatTimer.state;
                         ExecuteMove();
@@ -260,10 +266,21 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
     {
         if (currentDirection == Vector2Int.zero) return;
 
-        moveExecutedThisCycle = true;
         Vector2Int dir = currentDirection;
-        Debug.Log($"[PlayerAnimationChecks] Joystick ExecuteMove — dir={dir} isAutoMove={isAutoMove}");
+        Debug.Log($"[PlayerAnimationChecks] Joystick ExecuteMove — dir={dir} isAutoMove={isAutoMove} moveExecutedThisCycle={moveExecutedThisCycle}");
         player.SetFacingDirection(dir);
+
+        // If the player already executed a manual move this beat, treat any additional
+        // press as OffBeat: player.Move still runs (so "F" feedback + bounce fire) but
+        // validMove will be false inside Player so the tile position never changes.
+        if (!isAutoMove && moveExecutedThisCycle)
+        {
+            player.Move(dir, overrideState: BeatState.OffBeat);
+            return;
+        }
+
+        moveExecutedThisCycle = true;
+        _moveLocked           = true;  // lock until next OnBeat so mid-animation input is ignored
         player.Move(dir, overrideState: isAutoMove ? (BeatState?)null : capturedBeatState, autoMove: isAutoMove);
     }
 
@@ -278,6 +295,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
     private void OnBeatCycleStart()
     {
         moveExecutedThisCycle = false;
+        _moveLocked           = false;  // unlock beat-button input for the new beat window
     }
 
     /// <summary>
@@ -304,7 +322,10 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
         currentDirection       = Vector2Int.zero;
         mouseJoystickActive    = false;
         keyboardJoystickActive = false;
-        moveExecutedThisCycle  = false;
+        // moveExecutedThisCycle is intentionally NOT reset here.
+        // It must only be cleared by OnBeatCycleStart() so that releasing and
+        // re-engaging the joystick within the same beat cannot trigger a second
+        // auto-move via OnOffBeatAutoMove and cause a tile/model desync.
         if (joystickKnobRt != null)
             joystickKnobRt.anchoredPosition = Vector2.zero;
     }
@@ -330,7 +351,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
             else
             {
                 // Click on beat button side.
-                if (currentDirection != Vector2Int.zero)
+                if (currentDirection != Vector2Int.zero && !_moveLocked)
                 {
                     capturedBeatState = GameController.beatTimer.state;
                     ExecuteMove();
@@ -347,7 +368,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
         }
 
         // Right mouse button: beat press shortcut.
-        if (Input.GetMouseButtonDown(1) && joystickFingerId != -1 && currentDirection != Vector2Int.zero)
+        if (Input.GetMouseButtonDown(1) && joystickFingerId != -1 && currentDirection != Vector2Int.zero && !_moveLocked)
         {
             capturedBeatState = GameController.beatTimer.state;
             ExecuteMove();
@@ -392,7 +413,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
         }
 
         // Space bar = beat press.
-        if (Input.GetKeyDown(KeyCode.Space) && keyboardJoystickActive && currentDirection != Vector2Int.zero)
+        if (Input.GetKeyDown(KeyCode.Space) && keyboardJoystickActive && currentDirection != Vector2Int.zero && !_moveLocked)
         {
             capturedBeatState = GameController.beatTimer.state;
             ExecuteMove();

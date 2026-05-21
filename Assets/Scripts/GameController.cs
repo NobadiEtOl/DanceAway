@@ -65,6 +65,10 @@ public class GameController : MonoBehaviour
     public bool isSpawningEnemies = false; // Flag to track enemy spawning
     [Header("Enemy Movement")]
     [SerializeField] private bool freezeEnemies = false;
+
+    [Header("Debug")]
+    [SerializeField] public bool debugShowPlayerTile = false;
+    private Vector2Int _debugTilePos = new Vector2Int(-1, -1);
     private LevelManager levelManager;
     private EnemySpawner enemySpawner;
     private GridController gridController;
@@ -519,6 +523,13 @@ public class GameController : MonoBehaviour
         }
     }
 
+    /// <summary>Records the player's current logical tile position for the debug visualizer.
+    /// Call this after every Move() so the black tile tracks the authoritative position.</summary>
+    public void UpdateDebugTilePos(Vector2Int playerPos)
+    {
+        _debugTilePos = playerPos;
+    }
+
     private void UpdatePerfectBeatTileColors()
     {
         if (beatTimer == null) return;
@@ -734,6 +745,15 @@ public class GameController : MonoBehaviour
     {
         UpdatePerfectBeatTileColors();
 
+        // Debug: paint the player's logical tile black every frame so it
+        // stays visible even after SwitchColor resets the arena each beat.
+        if (debugShowPlayerTile && grid != null && _debugTilePos.x >= 0
+            && _debugTilePos.x < width && _debugTilePos.y < height)
+        {
+            var sr = grid[_debugTilePos.x, _debugTilePos.y]?.GetComponent<SpriteRenderer>();
+            if (sr != null) sr.color = Color.black;
+        }
+
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             HandleBackButton();
@@ -860,6 +880,8 @@ public class GameController : MonoBehaviour
     public void OpenEndScreen()
     {
         SaveRunProgress();
+        if (scoreObj != null) scoreObj.SetActive(false);
+        if (controlPlacement != null) controlPlacement.HideControls();
         endScore.text = player.score.ToString();
         endLevelText.text = "Level " + levelNo.ToString();
         endScreen.SetActive(true);

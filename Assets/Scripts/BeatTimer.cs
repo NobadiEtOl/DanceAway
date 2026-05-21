@@ -102,8 +102,15 @@ public class BeatTimer : MonoBehaviour
             rt.anchorMax = new Vector2(0.5f, 1f);
             rt.pivot     = new Vector2(0.5f, 0.5f);
 
-            // Center X relative to background center (background pivot assumed center)
-            float centerX = (PAD + i * STRIDE + BAR_W * 0.5f) * scale - totalW * 0.5f;
+            // Center-out layout: even sprites fill the left side, odd sprites fill the right side,
+            // both expanding outward from center. Sprite 0/1 (red) sit closest to center;
+            // sprite 40/41 (green) sit at the outer edges.
+            int barIndex;
+            if (i % 2 == 0)
+                barIndex = 20 - (i / 2);       // left side: slot 0 → bar 20, slot 20 → bar 0
+            else
+                barIndex = 21 + ((i - 1) / 2); // right side: slot 0 → bar 21, slot 20 → bar 41
+            float centerX = (PAD + barIndex * STRIDE + BAR_W * 0.5f) * scale - totalW * 0.5f;
             rt.anchoredPosition = new Vector2(centerX, 0f);
 
             // Width = scaled bar; height = 0 → full parent height via Y anchors
@@ -199,6 +206,21 @@ public class BeatTimer : MonoBehaviour
 
     // Returns the DSP timestamp N beats from now (0 = next beat, 1 = beat after next, etc.)
     public double GetBeatDsp(int beatsFromNow = 0) => nextBeatDsp + beatsFromNow * beatInterval;
+
+    // Returns a 0–1 value representing how far the current moment is from the nearest beat.
+    // 0 = exactly on the beat (PerfectBeat), 1 = midpoint between beats (OffBeat).
+    // Safe to call from Update() every frame.
+    public float GetNormalizedBeatPhase()
+    {
+        if (!begin || !trackStarted) return 0f;
+        double dsp           = AudioSettings.dspTime;
+        double timeSinceBeat = dsp - lastBeatDsp;
+        double timeUntilBeat = nextBeatDsp - dsp;
+        double distFromBeat  = System.Math.Min(System.Math.Abs(timeSinceBeat), timeUntilBeat);
+        distFromBeat         = System.Math.Max(0.0, distFromBeat);
+        float halfInterval   = beatInterval * 0.5f;
+        return halfInterval > 0f ? Mathf.Clamp01((float)(distFromBeat / halfInterval)) : 0f;
+    }
 
     // Atomically snaps tempo at a beat boundary.
     // Only beatInterval and pitch change — nextBeatDsp is untouched so the track stays stable.

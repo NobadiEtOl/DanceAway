@@ -291,6 +291,7 @@ public class IntroSequenceController : MonoBehaviour
         }
 
         _introActive = true;
+        player.introMode = true;
         gameController.BeatTimerBegin(); // music starts, beats fire → OnIntroBeat is called
     }
 
@@ -391,6 +392,7 @@ public class IntroSequenceController : MonoBehaviour
         player.transform.position = _targetPlayerPos;
         _playerRb.position        = _targetPlayerPos;
         player.position           = _targetPlayerGridPos;
+        player.introMode          = false;
 
         cam.transform.position = _targetCameraPos;
         cam.orthographicSize   = _targetCameraOrthoSize;

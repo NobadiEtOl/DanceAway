@@ -187,7 +187,10 @@ public class ControlPlacementController : MonoBehaviour
             return;
         }
 
-        FitToZone(rt);
+        if (mode == MovementMode.Swipe)
+            FitToZoneStretch(rt);
+        else
+            FitToZone(rt);
 
         // Apply joystick side-flip after FitToZone so the magnitude stays correct.
         if (mode == MovementMode.JoystickBeat && flipJoystickSides)
@@ -233,5 +236,26 @@ public class ControlPlacementController : MonoBehaviour
         // TODO landscape: gate on Screen.width > Screen.height and call FitLandscape() instead.
         float scale = Mathf.Min(zone.x / design.x, zone.y / design.y);
         rt.localScale = Vector3.one * scale;
+    }
+
+    private void FitToZoneStretch(RectTransform rt)
+    {
+        // Swipe controller is intentionally stretched to fill both axes of the zone.
+        rt.anchorMin        = new Vector2(0.5f, 0.5f);
+        rt.anchorMax        = new Vector2(0.5f, 0.5f);
+        rt.pivot            = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+
+        Vector2 zone   = controlRoot.rect.size;
+        Vector2 design = rt.sizeDelta;
+
+        if (design.x <= 0f || design.y <= 0f)
+        {
+            Debug.LogWarning("[ControlPlacementController] Prefab root sizeDelta is zero — cannot stretch to fit. " +
+                             "Set the RectTransform size in the prefab to your design resolution.", this);
+            return;
+        }
+
+        rt.localScale = new Vector3(zone.x / design.x, zone.y / design.y, 1f);
     }
 }
