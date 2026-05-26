@@ -98,7 +98,7 @@ public class SpotlightSquare: MonoBehaviour
 
     private bool IsOutside()
     {
-        if (position.x < 0 || position.x >= 9 || position.y < 0 || position.y >= 9)
+        if (position.x < gridBoundsSpotlight[0] || position.x >= gridBoundsSpotlight[1] || position.y < gridBoundsSpotlight[2] || position.y >= gridBoundsSpotlight[3])
         {
             return true; // Out of bounds
         }
@@ -107,7 +107,7 @@ public class SpotlightSquare: MonoBehaviour
 
     private Vector2Int GetDirectionTowardsGrid()
     {
-        if (position.x <= gridBoundsSpotlight[0]-1) // Coming from the left
+        if (position.x < gridBoundsSpotlight[0]) // Coming from the left
         {
             return Vector2Int.right;
         }
@@ -115,9 +115,13 @@ public class SpotlightSquare: MonoBehaviour
         {
             return Vector2Int.left;
         }
-        else if (position.y >=  gridBoundsSpotlight[3]) // Coming from above
+        else if (position.y >= gridBoundsSpotlight[3]) // Coming from above
         {
             return Vector2Int.down;
+        }
+        else if (position.y < gridBoundsSpotlight[2]) // Coming from below
+        {
+            return Vector2Int.up;
         }
         else return Vector2Int.zero;
     }
@@ -207,7 +211,7 @@ public class SpotlightSquare: MonoBehaviour
 
     private bool IsValidMove(Vector2Int nextPosition)
     {
-        if (nextPosition.x < 0 || nextPosition.x >= 9 || nextPosition.y < 0 || nextPosition.y >= 9)
+        if (nextPosition.x < gridBoundsSpotlight[0] || nextPosition.x >= gridBoundsSpotlight[1] || nextPosition.y < gridBoundsSpotlight[2] || nextPosition.y >= gridBoundsSpotlight[3])
         {
             return false; // Out of bounds
         }

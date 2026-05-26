@@ -1,0 +1,129 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Unlit_StarShader
+  m_Shader: {fileID: 4800000, guid: c3358557b62733045851b7d14bf82bb6, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: _EmissionOffset
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AccentFrequency: 3
+    - _AccentIntensity: 0.093
+    - _AccentSpeed: 1
+    - _AnimationAmount: 0.5
+    - _AnimationSpeed: 1
+    - _ColorBlendMode: 0
+    - _ColorMask: 15
+    - _EmissionCount: 16
+    - _EmissionIntensity: 2
+    - _EmissionLength: 2
+    - _EmissionOffset: 0.1
+    - _EmissionRotation: 152
+    - _EmissionSpeed: 1.05
+    - _EmissionStarPoints: 5
+    - _EmissionThickness: 0.05
+    - _EmissionWaveAmplitude: 0.1
+    - _EmissionWaveFrequency: 20
+    - _ExpansionSpeed: 0.5
+    - _FadeOut: 2
+    - _FadeStart: 0.1
+    - _GlowIntensity: 0
+    - _GlowRadius: 10
+    - _InnerRadius: 0.9
+    - _LargeStarSize: 0.15
+    - _LineThickness: 0.25
+    - _LineVariation: 0.3
+    - _MaxDistance: 1.5
+    - _MaxSize: 1.513
+    - _MediumStarSize: 0.08
+    - _OutlineIntensity: 2
+    - _OutlineWidth: 0.05
+    - _PointSharpness: 1.74
+    - _PulseAmplitude: 0.18
+    - _PulseSpeed: 10
+    - _RandomSeed: 100
+    - _ScaleAmount: 0.5
+    - _ScaleSpeed: 1
+    - _SmallStarSize: 0.03
+    - _SmokeFlowDirection: 140
+    - _SmokeFlowSpeed: 1
+    - _SmokeIntensity: 0.851
+    - _SmokePoint1Intensity: 1
+    - _SmokePoint2Intensity: 1
+    - _SmokePoint3Intensity: 1
+    - _SmokePoint4Intensity: 1
+    - _SmokePoint5Intensity: 0
+    - _SmokeReach: 0.914
+    - _SmokeScale: 5
+    - _SmokeSpeed: 0.57
+    - _SmokeTextureScale: 3.59
+    - _SmokeThickness: 1.64
+    - _SmokeTurbulence: 5
+    - _SparkleCount: 6
+    - _SparkleIntensity: 0.5
+    - _SparkleSize: 0.8
+    - _SparkleSpeed: 1
+    - _StarBrightness: 0.5
+    - _StarDelay: 0.3
+    - _StarDensity: 20
+    - _StarInterval: 2
+    - _StarPoints: 8
+    - _StarRotation: 22.5
+    - _StarSize: 0.221
+    - _StarSpeed: 1
+    - _StarThickness: 0.05
+    - _StartSize: 0.569
+    - _Stencil: 0
+    - _StencilComp: 8
+    - _StencilOp: 0
+    - _StencilReadMask: 255
+    - _StencilWriteMask: 255
+    - _TurbulentDistortion: 0
+    - _TurbulentIntensity: 0.68
+    - _TurbulentScale: 0.1
+    - _TurbulentSpeed: 3.34
+    - _Twinkle: 0.3
+    - _TwistAmplitude: 0.02
+    - _TwistSpeed: 1
+    - _WaveAmplitude: 0.0257
+    - _WaveFrequency: 20
+    - _WaveSpeed: 2
+    - _XLStarSize: 0.25
+    m_Colors:
+    - _AccentColor: {r: 0, g: 0, b: 0, a: 1}
+    - _BackgroundColor: {r: 0, g: 0, b: 0, a: 1}
+    - _EmissionColor: {r: 0.043137256, g: 0.5294118, b: 0.93725497, a: 1}
+    - _OutlineColor: {r: 0, g: 0, b: 0, a: 1}
+    - _SmokeColor: {r: 0.043137256, g: 0.5294118, b: 0.93725497, a: 1}
+    - _SmokePoint1: {r: 0, g: 0, b: 0, a: 0}
+    - _SmokePoint2: {r: 0, g: 1, b: 0, a: 0}
+    - _SmokePoint3: {r: 1, g: 0, b: 0, a: 0}
+    - _SmokePoint4: {r: 1, g: 1, b: 0, a: 0}
+    - _SmokePoint5: {r: 3, g: 3, b: 0, a: 0}
+    - _SmokeTextureOffset: {r: 0, g: 0, b: 0, a: 0}
+    - _SparkleColor: {r: 1, g: 0.5, b: 0, a: 1}
+    - _StarColor: {r: 0.9372549, g: 0.17663066, b: 0.04313725, a: 1}
+    - _TurbulentColor: {r: 0.7660377, g: 0.75137067, b: 0.5940405, a: 1}
+  m_BuildTextureStacks: []

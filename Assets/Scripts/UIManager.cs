@@ -27,6 +27,10 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button joystickBeatReturnButton;
     [SerializeField] private Button joystickFlipButton;
 
+    [Header("Console Bottom Half")]
+    [Tooltip("Reference to the bottom-half controller so info windows can preview the related control.")]
+    [SerializeField] private ConsoleBottomHalfController consoleBottomHalf;
+
     void Start()
     {
         // Wire main mode buttons
@@ -107,6 +111,7 @@ public class UIManager : MonoBehaviour
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(false);
         if (swipeInfoWindow        != null) swipeInfoWindow.SetActive(true);
         controlPlacementController?.PreviewMode(MovementMode.Swipe);
+        consoleBottomHalf?.ShowControlPreview();
     }
 
     private void OnArrowKeysModePressed()
@@ -115,6 +120,7 @@ public class UIManager : MonoBehaviour
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(false);
         if (arrowKeysInfoWindow    != null) arrowKeysInfoWindow.SetActive(true);
         controlPlacementController?.PreviewMode(MovementMode.ArrowKeys);
+        consoleBottomHalf?.ShowControlPreview();
     }
 
     private void OnJoystickBeatModePressed()
@@ -123,6 +129,7 @@ public class UIManager : MonoBehaviour
         if (arrowKeysInfoWindow != null) arrowKeysInfoWindow.SetActive(false);
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(true);
         controlPlacementController?.PreviewMode(MovementMode.JoystickBeat);
+        consoleBottomHalf?.ShowControlPreview();
     }
 
     // -------------------------------------------------------------------------
@@ -135,13 +142,15 @@ public class UIManager : MonoBehaviour
         controlPlacementController?.UpdateCurrentMode(MovementMode.Swipe);
         if (swipeInfoWindow != null) swipeInfoWindow.SetActive(false);
         RefreshMainButtonVisuals();
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnSwipeReturn()
     {
         if (swipeInfoWindow != null) swipeInfoWindow.SetActive(false);
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnArrowKeysAccept()
@@ -150,13 +159,15 @@ public class UIManager : MonoBehaviour
         controlPlacementController?.UpdateCurrentMode(MovementMode.ArrowKeys);
         if (arrowKeysInfoWindow != null) arrowKeysInfoWindow.SetActive(false);
         RefreshMainButtonVisuals();
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnArrowKeysReturn()
     {
         if (arrowKeysInfoWindow != null) arrowKeysInfoWindow.SetActive(false);
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnJoystickBeatAccept()
@@ -165,13 +176,15 @@ public class UIManager : MonoBehaviour
         controlPlacementController?.UpdateCurrentMode(MovementMode.JoystickBeat);
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(false);
         RefreshMainButtonVisuals();
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnJoystickBeatReturn()
     {
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(false);
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     private void OnJoystickFlipPressed()
@@ -190,7 +203,8 @@ public class UIManager : MonoBehaviour
         if (swipeInfoWindow        != null) swipeInfoWindow.SetActive(false);
         if (arrowKeysInfoWindow    != null) arrowKeysInfoWindow.SetActive(false);
         if (joystickBeatInfoWindow != null) joystickBeatInfoWindow.SetActive(false);
-        RestoreOrHideControls();
+        if (consoleBottomHalf == null || !consoleBottomHalf.HideControlPreview())
+            RestoreOrHideControls();
     }
 
     /// <summary>

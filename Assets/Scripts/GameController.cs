@@ -77,7 +77,7 @@ public class GameController : MonoBehaviour
     public bool introRunning = true;
     [SerializeField]private GameObject startScreen;
     [SerializeField]private GameObject settingScreen;
-    [SerializeField]private GameObject settingsButtonsContainer;
+    [SerializeField] private ConsoleBottomHalfController consoleBottomHalf;
     [SerializeField]private GameObject healthBar;
     [SerializeField]private GameObject scoreObj;
     [SerializeField]private Text endScore;
@@ -109,6 +109,11 @@ public class GameController : MonoBehaviour
     [SerializeField] private MovementMode currentMovementMode;
     [SerializeField] private ControlPlacementController controlPlacement;
 
+    // WASD Override
+    [Header("WASD Override")]
+    [Tooltip("When enabled, WASD keys move the player regardless of the active control scheme.")]
+    [SerializeField] private bool wasdEnabled = true;
+
     [SerializeField] private int performanceThresholdHand1 = 75;      // Below this, hand beat 1 removed
     [SerializeField] private int performanceThresholdHand2 = 130;     // Below this, hand beat 2 removed
     [SerializeField] private int performanceThresholdDrums = 50;      // Below this, drum layers removed
@@ -119,6 +124,7 @@ public class GameController : MonoBehaviour
 
     public void StartHandleBeatCor()
     {
+        EnsureSettingsClosed(); // dismiss settings overlay before gameplay begins
         canStart = true;
         player.score = 0;
         scoreObj.SetActive(true);
@@ -133,7 +139,7 @@ public class GameController : MonoBehaviour
         lockAvarageAtMax = false;  // Allow avarage to change from now on
         dynamicMusicActive = true; // Dynamic music now responds to performance
         difficultyLocked = true;   // Lock difficulty for the rest of this session
-        if (controlPlacement != null) controlPlacement.ShowMode(currentMovementMode); // Show controls now that gameplay begins
+        consoleBottomHalf?.ShowGameplay(); // Activate input controls via bottom half controller
         StartGame();               // Spawn first wave now, using the difficulty the player chose
         RefreshCameraForGameplay();
     }
@@ -194,6 +200,7 @@ public class GameController : MonoBehaviour
         UpdateLockIcons();
 
         currentMovementMode = (MovementMode)PlayerPrefs.GetInt("MovementMode", (int)MovementMode.ArrowKeys);
+        wasdEnabled = PlayerPrefs.GetInt("WASDEnabled", 1) == 1;
 
         // Guarded: IntroSequenceController will call these after the intro walk finishes.
         if (!introRunning)
@@ -758,6 +765,15 @@ public class GameController : MonoBehaviour
         {
             HandleBackButton();
         }
+
+        // WASD overlay — fires regardless of the active control scheme.
+        if (wasdEnabled && canStart && !introRunning)
+        {
+            if      (Input.GetKeyDown(KeyCode.W)) { OnArrowUp();    }
+            else if (Input.GetKeyDown(KeyCode.S)) { OnArrowDown();  }
+            else if (Input.GetKeyDown(KeyCode.A)) { OnArrowLeft();  }
+            else if (Input.GetKeyDown(KeyCode.D)) { OnArrowRight(); }
+        }
     }
 
     private void HandleBackButton()
@@ -879,12 +895,14 @@ public class GameController : MonoBehaviour
     
     public void OpenEndScreen()
     {
+        EnsureSettingsClosed(); // settings must not linger over the end screen
         SaveRunProgress();
         if (scoreObj != null) scoreObj.SetActive(false);
         if (controlPlacement != null) controlPlacement.HideControls();
         endScore.text = player.score.ToString();
         endLevelText.text = "Level " + levelNo.ToString();
         endScreen.SetActive(true);
+        consoleBottomHalf?.ShowEndScreen();
     }
 
     private void SaveRunProgress()
@@ -931,60 +949,54 @@ public class GameController : MonoBehaviour
 
     public void  OpenSettingScreen()
     {
+        // Toggle: pressing the settings button while settings is open closes it.
+        if (settingScreen != null && settingScreen.activeSelf)
+        {
+            CloseSettingScreen();
+            return;
+        }
+
         settingScreen.SetActive(true);
-        SetSettingsButtonsVisible(false);
         if (retryButton != null) retryButton.gameObject.SetActive(canStart);
         if (canStart)
         {
             Time.timeScale = 0;
             beatTimer.PauseTrack();
         }
-        else if (startScreen != null)
-        {
-            startScreen.SetActive(false);
-        }
     }
 
     public void CloseSettingScreen()
     {
         settingScreen.SetActive(false);
-        if (!tutorialWindowOpen)
-        {
-            SetSettingsButtonsVisible(true);
-        }
         if (canStart)
         {
             Time.timeScale = 1;
             beatTimer.ResumeTrack();
         }
-        else if (startScreen != null)
-        {
-            startScreen.SetActive(true);
-        }
     }
 
     public void OnTutorialWindowOpened()
     {
+        EnsureSettingsClosed(); // dismiss settings when the tutorial opens on top
         tutorialWindowOpen = true;
-        SetSettingsButtonsVisible(false);
+    }
+
+    /// <summary>
+    /// Closes the settings screen if it is currently open, handling time-scale and
+    /// beat-timer cleanup correctly for the current game state.
+    /// </summary>
+    private void EnsureSettingsClosed()
+    {
+        if (settingScreen != null && settingScreen.activeSelf)
+            CloseSettingScreen();
     }
 
     public void OnTutorialWindowClosed()
     {
         tutorialWindowOpen = false;
-        if (settingScreen == null || !settingScreen.activeSelf)
-        {
-            SetSettingsButtonsVisible(true);
-        }
     }
 
-    private void SetSettingsButtonsVisible(bool isVisible)
-    {
-        if (settingsButtonsContainer != null)
-        {
-            settingsButtonsContainer.SetActive(isVisible);
-        }
-    }
+
     /// <summary>
     /// Maps a slider value [0,1] to decibels:
     /// 0.0 → -80 dB (silence), 0.5 → 0 dB (default), 1.0 → +6 dB (2× amplitude).
@@ -1063,6 +1075,27 @@ public class GameController : MonoBehaviour
         if (normalLockIcon != null) normalLockIcon.SetActive(!normalUnlocked);
         if (hardLockIcon   != null) hardLockIcon.SetActive(!hardUnlocked);
     }
+
+    // -------------------------------------------------------------------------
+    // WASD Override
+    // -------------------------------------------------------------------------
+
+    /// <summary>Enable or disable the WASD keyboard overlay. Persists across sessions.</summary>
+    public void SetWASDEnabled(bool enabled)
+    {
+        wasdEnabled = enabled;
+        PlayerPrefs.SetInt("WASDEnabled", enabled ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>Toggles the WASD overlay on/off. Wire to a UI toggle button.</summary>
+    public void ToggleWASD()
+    {
+        SetWASDEnabled(!wasdEnabled);
+    }
+
+    /// <summary>Returns whether the WASD overlay is currently active.</summary>
+    public bool GetWASDEnabled() => wasdEnabled;
 
     // -------------------------------------------------------------------------
     // Movement Mode

@@ -91,3 +91,4 @@ MonoBehaviour:
   player: {fileID: 0}
   minSwipeDistance: 1
   swipeArea: {fileID: 120837363256641350}
+  manualSwipesAnywhere: 1

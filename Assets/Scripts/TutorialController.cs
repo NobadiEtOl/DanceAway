@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class TutorialController : MonoBehaviour
 {
@@ -12,6 +13,13 @@ public class TutorialController : MonoBehaviour
     [SerializeField]private GameObject fourthPage;
     [SerializeField]private GameObject score;
     [SerializeField]private GameObject startScreen;
+    [SerializeField]private ConsoleBottomHalfController consoleBottomHalf;
+    [SerializeField]private GameObject backButton;
+    [SerializeField]private GameObject forwardButton;
+
+    private int currentPage = 1;
+    private const int totalPages = 4;
+
     // Start is called before the first frame update
     void Start()
     {
@@ -33,21 +41,60 @@ public class TutorialController : MonoBehaviour
         
     }
 
-    public void OpenFirst()
+    public void OpenTutorial()
     {
-        print("openfirst");
         CloseStartScreen();
         tutorialScreen.SetActive(true);
         if (gameController != null)
         {
             gameController.OnTutorialWindowOpened();
         }
-        firstPage.SetActive(true);
-        secondPage.SetActive(false);
-        thirdPage.SetActive(false);
-        fourthPage.SetActive(false);
-        score.SetActive(false);
-        print("openfirstend");
+        consoleBottomHalf?.ShowTutorial();
+        ShowPage(1);
+    }
+
+    public void NavigateForward()
+    {
+        if (currentPage < totalPages)
+            ShowPage(currentPage + 1);
+    }
+
+    public void NavigateBack()
+    {
+        if (currentPage > 1)
+            ShowPage(currentPage - 1);
+    }
+
+    private void ShowPage(int page)
+    {
+        currentPage = page;
+        firstPage.SetActive(page == 1);
+        secondPage.SetActive(page == 2);
+        thirdPage.SetActive(page == 3);
+        fourthPage.SetActive(page == 4);
+        score.SetActive(page >= 2);
+
+        SetTutorialButtonVisible(backButton, page > 1);
+        SetTutorialButtonVisible(forwardButton, page < totalPages);
+    }
+
+    private void SetTutorialButtonVisible(GameObject buttonObj, bool visible)
+    {
+        if (buttonObj == null) return;
+
+        // Activation/deactivation is owned by ConsoleBottomHalfController.
+        // Here we only control visibility and clickability per tutorial page.
+        var cg = buttonObj.GetComponent<CanvasGroup>();
+        if (cg == null)
+            cg = buttonObj.AddComponent<CanvasGroup>();
+
+        cg.alpha = visible ? 1f : 0f;
+        cg.interactable = visible;
+        cg.blocksRaycasts = visible;
+
+        var btn = buttonObj.GetComponent<Button>();
+        if (btn != null)
+            btn.interactable = visible;
     }
 
     private void CloseStartScreen()
@@ -59,30 +106,12 @@ public class TutorialController : MonoBehaviour
         else startScreen.SetActive(false);
     }
 
-    public void OpenSecond()
-    {
-        secondPage.SetActive(true);
-        firstPage.SetActive(false);
-        score.SetActive(true);
-    }
-
-    public void OpenThird()
-    {
-        thirdPage.SetActive(true);
-        secondPage.SetActive(false);
-    }
-
-    public void OpenFourth()
-    {
-        fourthPage.SetActive(true);
-        thirdPage.SetActive(false);
-    }
-
     public void CloseTutorial()
     {
         startScreen.SetActive(true);
         tutorialScreen.SetActive(false);
         score.SetActive(false);
+        consoleBottomHalf?.ShowStartScreen();
         if (gameController != null)
         {
             gameController.OnTutorialWindowClosed();

@@ -50,6 +50,9 @@ public class Player : MonoBehaviour
     // Cancelling it before starting a new one prevents a stale coroutine
     // from forcing "idle" over a freshly started move animation.
     private Coroutine _moveAnimCoroutine;
+    // Tracks the active WrongMove coroutine so its pending rebound can be cancelled
+    // when a new move fires — prevents a stale rebound from landing on a fresh force.
+    private Coroutine _wrongMoveCoroutine;
 
     // ── Force lock ────────────────────────────────────────────────────────────
     // Only one rb.AddForce displacement is allowed at a time. Once Move() begins
@@ -128,6 +131,22 @@ public class Player : MonoBehaviour
     void FixedUpdate()
     {
         transform.rotation = Quaternion.Lerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
+
+        // Velocity-idle drift correction: once no force is in flight, the rigidbody
+        // is nearly at rest, and the visual position has drifted from the logical grid
+        // tile, snap back silently. Animations always finish first because the snap
+        // only fires after physics has settled — no timer needed.
+        // Threshold is tight (0.01 sqrMag = 0.1 units/s) because the pre-move snap in
+        // Move() is now the primary corrector — this is the safety net.
+        if (rb != null && !_forceLocked && !takingDamage && !introMode)
+        {
+            Vector2 logicalPos = new Vector2(position.x * tileSize, position.y * tileSize);
+            if (rb.velocity.sqrMagnitude < 0.01f && Vector2.Distance(rb.position, logicalPos) > 0.05f)
+            {
+                rb.velocity = Vector2.zero;
+                rb.position = logicalPos;
+            }
+        }
     }
 
     private int moveCount=0;  
@@ -140,6 +159,20 @@ public class Player : MonoBehaviour
         // Prevents stacking forces from multiple enemies, crowd bounces, and player input.
         if (_forceLocked) return;
         StartForceLock();
+
+        // ── Pre-move rb reset ─────────────────────────────────────────────────
+        // Zero velocity and snap the Rigidbody to the current logical grid tile before
+        // applying any new force. Prevents physics overshoots from compounding into
+        // visible desync across rapid-input sessions. Skipped during introMode so the
+        // intro walk controller stays in charge of the Rigidbody.
+        // Also cancels any pending WrongMove rebound — the new move supersedes it.
+        if (_wrongMoveCoroutine != null) { StopCoroutine(_wrongMoveCoroutine); _wrongMoveCoroutine = null; }
+        if (!introMode && rb != null)
+        {
+            rb.velocity = Vector2.zero;
+            rb.position = new Vector2(position.x * tileSize, position.y * tileSize);
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         Debug.Log($"[PlayerAnimationChecks] Move() called — dir={direction} pushed={pushed} autoMove={autoMove} overrideState={overrideState}");
 
@@ -213,7 +246,7 @@ public class Player : MonoBehaviour
                         case BeatState.OffBeat:
                             scoreIncrement     = 0;
                             beatStateText.text = "F";
-                            StartCoroutine(WrongMove(direction));
+                            _wrongMoveCoroutine = StartCoroutine(WrongMove(direction));
                             moveCombo          = 0;
                             break;
                         default:
@@ -254,8 +287,11 @@ public class Player : MonoBehaviour
         {
             float currentDist = Vector2.Distance(position, new Vector2(4, 4));
             float newDist     = Vector2.Distance(newPosition, new Vector2(4, 4));
+            // Previously called Move(direction, pushed:true) here, which was always silently
+            // dropped — _forceLocked was set at the top of this very Move() call. Now uses
+            // ApplyInternalPush which bypasses the lock and actually fires the rescue push.
             if (newDist <= currentDist)
-                Move(direction, pushed: true);
+                ApplyInternalPush(direction);
         }
         // ── Path C: valid timing but direction leads out of bounds ─────────────
         else
@@ -268,14 +304,11 @@ public class Player : MonoBehaviour
             {
                 // True corner hit: both axes lead into crowd.
                 // Fire a full rebound force on both axes (same timing as single-wall)
-                // so the player visually bounces off the corner, then snap to the exact
-                // tile slightly later to prevent physics drift.
+                // so the player visually bounces off the corner.
                 Vector2 reboundForce = new Vector2(
                     -direction.x * (200 * tileSize),
                     -direction.y * (200 * tileSize));
                 StartCoroutine(DelayedForce(reboundForce, beatTimer.beatInterval / 4f, bypassLock: true));
-                Vector2 cornerTilePos = new Vector2(position.x * tileSize, position.y * tileSize);
-                StartCoroutine(DelayedSnap(cornerTilePos, beatTimer.beatInterval / 2f));
             }
             else
             {
@@ -311,6 +344,23 @@ public class Player : MonoBehaviour
         moveCount = 0;
     }
 
+    /// <summary>Updates logical position one tile in <paramref name="dir"/> (clamped to
+    /// the playfield), snaps the Rigidbody to the new tile, and fires a displacement
+    /// force — all without touching the force lock. For internal rescues only
+    /// (Path B and CheckIfOutside). Never call from player input paths.</summary>
+    private void ApplyInternalPush(Vector2Int dir)
+    {
+        position += dir;
+        position.x = Mathf.Clamp(position.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+        position.y = Mathf.Clamp(position.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+        if (rb != null)
+        {
+            rb.velocity = Vector2.zero;
+            rb.position = new Vector2(position.x * tileSize, position.y * tileSize);
+            rb.AddForce((Vector2)dir * (200 * tileSize));
+        }
+        gameController?.UpdateDebugTilePos(position);
+    }
 
     private void CheckForSpotlightCollision()
     {
@@ -349,23 +399,20 @@ public class Player : MonoBehaviour
         // the logical position has already moved to the pushed tile.
         if (takingDamage) yield break;
 
-        // Phase 2: clip the initial push so it never fires toward the crowd.
-        // Only apply force on axes where position + direction is still in bounds.
-        Vector2Int testPos = position + new Vector2Int(Mathf.RoundToInt(direction.x), Mathf.RoundToInt(direction.y));
-        Vector2 clippedDir = new Vector2(
-            (testPos.x < gridBoundsPlayer[0] || testPos.x >= gridBoundsPlayer[1]) ? 0 : direction.x,
-            (testPos.y < gridBoundsPlayer[2] || testPos.y >= gridBoundsPlayer[3]) ? 0 : direction.y);
-        if (clippedDir != Vector2.zero)
-            rb.AddForce(clippedDir * (200 * tileSize));
+        // Always apply force in the full attempted direction — even toward the crowd —
+        // so the player visually bumps in that direction before rebounding back,
+        // matching the feel of a valid crowd-wall hit (Path C).
+        rb.AddForce((Vector2)direction * (200 * tileSize));
 
-        yield return new WaitForSeconds(beatTimer.beatInterval/4);
+        yield return new WaitForSeconds(beatTimer.beatInterval / 4f);
 
         // Clip the rebound so it never pushes toward a second crowd wall.
         Vector2 rebound = reboundDirection ?? -direction;
         Vector2Int reboundTarget = position + new Vector2Int(Mathf.RoundToInt(rebound.x), Mathf.RoundToInt(rebound.y));
         if (reboundTarget.x < gridBoundsPlayer[0] || reboundTarget.x >= gridBoundsPlayer[1]) rebound.x = 0;
         if (reboundTarget.y < gridBoundsPlayer[2] || reboundTarget.y >= gridBoundsPlayer[3]) rebound.y = 0;
-        rb.AddForce(rebound * (200 * tileSize));
+        if (rebound != Vector2.zero)
+            rb.AddForce(rebound * (200 * tileSize));
     }
 
     /// <summary>Waits <paramref name="delay"/> seconds then applies a raw physics force.
@@ -572,36 +619,28 @@ public class Player : MonoBehaviour
 
     private void CheckIfOutside()
     {
-        if(position.x < gridBoundsPlayer[0])
-        {
-            for(int i = gridBoundsPlayer[0]-position.x; i > 0; i--)
-            {
-                Move(Vector2Int.right,true);
-            }
-        }
+        // Previously: loops of Move(dir, pushed:true) — only the first iteration ever
+        // fired because _forceLocked was already set by the outer Move() that triggered
+        // ChangeGridBounds. Now: compute the clamped target in one step, snap the rb
+        // directly, and fire a single visual impulse. Handles multi-tile corrections.
+        int targetX = Mathf.Clamp(position.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+        int targetY = Mathf.Clamp(position.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+        if (targetX == position.x && targetY == position.y) return;
 
-        if(position.x >= gridBoundsPlayer[1])
-        {
-            for(int i = position.x-gridBoundsPlayer[1]+1; i > 0; i--)
-            {
-                Move(Vector2Int.left,true);
-            }
-        }
+        // Unit-vector push direction so the visual impulse always has the same magnitude
+        // regardless of how many tiles needed correcting.
+        Vector2Int pushDir = new Vector2Int(
+            targetX != position.x ? (int)Mathf.Sign(targetX - position.x) : 0,
+            targetY != position.y ? (int)Mathf.Sign(targetY - position.y) : 0);
 
-        if(position.y < gridBoundsPlayer[2])
+        position = new Vector2Int(targetX, targetY);
+        if (rb != null)
         {
-            for(int i = gridBoundsPlayer[2]-position.y; i > 0; i--)
-            {
-                Move(Vector2Int.up,true);
-            }
+            rb.velocity = Vector2.zero;
+            rb.position = new Vector2(position.x * tileSize, position.y * tileSize);
+            rb.AddForce((Vector2)pushDir * (200 * tileSize));
         }
-        if(position.y >= gridBoundsPlayer[3])
-        {
-            for(int i = position.y-gridBoundsPlayer[3]+1; i > 0; i--)
-            {
-                Move(Vector2Int.down,true);
-            }
-        }
+        gameController?.UpdateDebugTilePos(position);
     }
 
     public void PlaceScore()

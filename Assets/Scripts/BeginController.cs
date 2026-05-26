@@ -12,11 +12,9 @@ public class BeginController : MonoBehaviour
     [SerializeField]private GameObject clickToBegin;
     [SerializeField]private float loadTime=15;
     private float beginTimer;
-    private bool isClicked;
     [SerializeField]private Text loadingText;
     [SerializeField]private GameObject danceAway;
-    [SerializeField]private GameObject startButton;
-    [SerializeField]private GameObject tutorialButton;
+    [SerializeField]private ConsoleBottomHalfController consoleBottomHalf;
     [SerializeField]private Image background;
     [SerializeField]private IntroSequenceController introSequenceController;
     private static bool alreadyStarted = false;
@@ -29,14 +27,11 @@ public class BeginController : MonoBehaviour
         StartCoroutine(PreloadAudio());
         gameController = GameObject.Find("GameController").GetComponent<GameController>();
         beginTimer=0;
-        isClicked=false;
         danceAway.SetActive(false);
-        startButton.SetActive(false);
-        tutorialButton.SetActive(false);
         if (loadingText != null)
         {
             loadingText.gameObject.SetActive(true);
-            loadingText.text = "DANS ET";
+            loadingText.text = _loadingStates[0];
         }
     }
 
@@ -66,7 +61,7 @@ public class BeginController : MonoBehaviour
 
     private void UpdateLoadingText()
     {
-        if (!isClicked || loadingText == null) return;
+        if (loadingText == null) return;
 
         int loadingStateIndex = Mathf.FloorToInt(beginTimer / LoadingTextStepDuration) % _loadingStates.Length;
         loadingText.text = _loadingStates[loadingStateIndex];
@@ -92,13 +87,7 @@ public class BeginController : MonoBehaviour
     // Function to start the game when preloading is complete
     public void BeginGame()
     {
-        isClicked=true;
-        danceAway.SetActive(true);
-        if (loadingText != null)
-        {
-            loadingText.gameObject.SetActive(true);
-            loadingText.text = _loadingStates[0];
-        }
+        // Loading flow no longer reacts to clicks.
     }
 
     private void GameReady()
@@ -125,7 +114,8 @@ public class BeginController : MonoBehaviour
     private void ShowStartScreen()
     {
         clickToBegin.SetActive(false);
-        startButton.SetActive(true);
-        tutorialButton.SetActive(true);
+        if (consoleBottomHalf == null)
+            Debug.LogWarning("[BeginController] consoleBottomHalf is not assigned — start screen elements will not activate.", this);
+        consoleBottomHalf?.ShowStartScreen();
     }
 }
