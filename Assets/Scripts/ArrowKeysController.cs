@@ -125,6 +125,7 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     private void HandleOffBeat()
     {
         if (_gc == null || !_gc.canStart || _gc.introRunning) return;
+        if (_gc.GetPlayYourMusicMode()) return;  // PYM mode: manual input only, no auto-move
         if (!_isHolding) return;
         if (_movedThisBeat) return;
 
@@ -151,6 +152,8 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
 
     private void ProcessContact(int fingerId, Vector2 screenPos, TouchPhase phase)
     {
+        bool inCalibration = _gc != null && _gc.inCalibration;
+
         switch (phase)
         {
             case TouchPhase.Began:
@@ -161,7 +164,7 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
                     _heldScreenPos  = screenPos;
                     Vector2Int dir  = ComputeDirection(screenPos);
                     _heldDirection  = dir;
-                    if (dir != Vector2Int.zero && !_moveLocked)
+                    if (dir != Vector2Int.zero && (!_moveLocked || inCalibration))
                         ExecuteImmediate(dir);
                 }
                 break;
@@ -193,13 +196,18 @@ public class ArrowKeysController : MonoBehaviour, IControlModule
     /// <summary>Immediate tap — goes through the regular beat-timing scoring flow.</summary>
     private void ExecuteImmediate(Vector2Int dir)
     {
+        bool inCalibration = _gc != null && _gc.inCalibration;
+
         // Guard: if the player already moved in this beat window (e.g. a previous tap
         // whose ResetTouch did NOT clear _movedThisBeat), swallow the input so only
         // one move ever fires per beat.
-        if (_movedThisBeat) return;
+        if (_movedThisBeat && !inCalibration) return;
         Debug.Log($"[PlayerAnimationChecks] ArrowKeys ExecuteImmediate — dir={dir}");
-        _movedThisBeat = true; // Prevent HandleOnBeat from also moving on this beat.
-        _moveLocked    = true; // Block further taps until the next beat unlocks input.
+        if (!inCalibration)
+        {
+            _movedThisBeat = true; // Prevent HandleOnBeat from also moving on this beat.
+            _moveLocked    = true; // Block further taps until the next beat unlocks input.
+        }
         _player.SetFacingDirection(dir);
         _player.Move(dir);
     }

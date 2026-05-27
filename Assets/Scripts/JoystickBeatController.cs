@@ -177,6 +177,8 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
 
     private void ProcessContact(int fingerId, Vector2 position, TouchPhase phase)
     {
+        bool inCalibration = gameController != null && gameController.inCalibration;
+
         switch (phase)
         {
             case TouchPhase.Began:
@@ -192,7 +194,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
                 else
                 {
                     // Beat button side: tap executes the current move.
-                    if (currentDirection != Vector2Int.zero && !_moveLocked)
+                    if (currentDirection != Vector2Int.zero && (!_moveLocked || inCalibration))
                     {
                         capturedBeatState = GameController.beatTimer.state;
                         ExecuteMove();
@@ -265,6 +267,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
     private void ExecuteMove(bool isAutoMove = false)
     {
         if (currentDirection == Vector2Int.zero) return;
+        bool inCalibration = gameController != null && gameController.inCalibration;
 
         Vector2Int dir = currentDirection;
         Debug.Log($"[PlayerAnimationChecks] Joystick ExecuteMove — dir={dir} isAutoMove={isAutoMove} moveExecutedThisCycle={moveExecutedThisCycle}");
@@ -273,14 +276,17 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
         // If the player already executed a manual move this beat, treat any additional
         // press as OffBeat: player.Move still runs (so "F" feedback + bounce fire) but
         // validMove will be false inside Player so the tile position never changes.
-        if (!isAutoMove && moveExecutedThisCycle)
+        if (!inCalibration && !isAutoMove && moveExecutedThisCycle)
         {
             player.Move(dir, overrideState: BeatState.OffBeat);
             return;
         }
 
-        moveExecutedThisCycle = true;
-        _moveLocked           = true;  // lock until next OnBeat so mid-animation input is ignored
+        if (!inCalibration)
+        {
+            moveExecutedThisCycle = true;
+            _moveLocked           = true;  // lock until next OnBeat so mid-animation input is ignored
+        }
         player.Move(dir, overrideState: isAutoMove ? (BeatState?)null : capturedBeatState, autoMove: isAutoMove);
     }
 
@@ -306,6 +312,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
     private void OnOffBeatAutoMove()
     {
         if (gameController == null || !gameController.canStart || gameController.introRunning) return;
+        if (gameController.GetPlayYourMusicMode()) return;  // PYM mode: manual input only, no auto-move
         if (moveExecutedThisCycle) return;
         if (currentDirection == Vector2Int.zero) return;
 
@@ -336,6 +343,8 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
 
     private void ProcessMouseInput()
     {
+        bool inCalibration = gameController != null && gameController.inCalibration;
+
         if (Input.GetMouseButtonDown(0))
         {
             Vector2 mpos = Input.mousePosition;
@@ -351,7 +360,7 @@ public class JoystickBeatController : MonoBehaviour, IControlModule
             else
             {
                 // Click on beat button side.
-                if (currentDirection != Vector2Int.zero && !_moveLocked)
+                if (currentDirection != Vector2Int.zero && (!_moveLocked || inCalibration))
                 {
                     capturedBeatState = GameController.beatTimer.state;
                     ExecuteMove();

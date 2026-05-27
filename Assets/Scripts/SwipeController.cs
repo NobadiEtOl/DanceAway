@@ -6,6 +6,7 @@ using Common.Enums;
 public class SwipeController : MonoBehaviour, IControlModule
 {
     [SerializeField] private Player player;
+    [SerializeField] private GameController gameController;
     [SerializeField] private float minSwipeDistance = 50f;
     [SerializeField] private RectTransform swipeArea;
     [SerializeField] private bool manualSwipesAnywhere = true;
@@ -68,7 +69,11 @@ public class SwipeController : MonoBehaviour, IControlModule
 
     public void Initialize(GameController gc)
     {
-        if (gc != null) player = gc.player;
+        if (gc != null)
+        {
+            gameController = gc;
+            player = gc.player;
+        }
     }
 
     public void SetSwipeArea(RectTransform area)
@@ -185,11 +190,13 @@ public class SwipeController : MonoBehaviour, IControlModule
         if (Vector2.Distance(_touchStart, currentPos) < minSwipeDistance)
             return;
 
+        bool inCalibration = gameController != null && gameController.inCalibration;
+
         _gesture = GestureState.Consumed; // ← dead from this moment, even if Move throws
 
-        if (_moveLocked) return;           // block input while movement animation is playing
+        if (_moveLocked && !inCalibration) return;           // block input while movement animation is playing
 
-        if (GameController.beatTimer.beatCounter == _lastMoveBeat)
+        if (!inCalibration && GameController.beatTimer.beatCounter == _lastMoveBeat)
             return; // already moved this beat
 
         Vector2 swipeDir = currentPos - _touchStart;
@@ -200,9 +207,12 @@ public class SwipeController : MonoBehaviour, IControlModule
         Vector2Int dir = SectorDirections[sector];
         player.SetFacingDirection(dir);
         player.Move(dir, overrideState: _capturedBeatState);
-        _moveLocked    = true;
-        _movedThisBeat = true;
-        _lastMoveBeat  = GameController.beatTimer.beatCounter;
+        if (!inCalibration)
+        {
+            _moveLocked    = true;
+            _movedThisBeat = true;
+            _lastMoveBeat  = GameController.beatTimer.beatCounter;
+        }
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
@@ -214,6 +224,7 @@ public class SwipeController : MonoBehaviour, IControlModule
     /// </summary>
     private void OnOffBeatAutoMove()
     {
+        if (gameController != null && gameController.GetPlayYourMusicMode()) return;  // PYM mode: manual input only, no auto-move
         if (!_isHolding)    return;
         if (_movedThisBeat) return;
 

@@ -226,11 +226,25 @@ public class BeatTimer : MonoBehaviour
     // Only beatInterval and pitch change — nextBeatDsp is untouched so the track stays stable.
     public void SetTempo(float newInterval, float newPitch)
     {
+        float prevInterval = beatInterval;
+        float prevPitch    = trackPitch;
+
         beatInterval = newInterval;
         trackPitch   = newPitch;
         for (int i = 0; i < GameController.audioSources.Length; i++)
             GameController.audioSources[i].pitch = newPitch;
         // nextBeatDsp is already correct — the track continues from the next queued beat
+
+        if (newInterval > 0f && prevInterval > 0f)
+        {
+            float prevBpm = 60f / prevInterval;
+            float newBpm  = 60f / newInterval;
+            Debug.Log($"[tap] Tempo change: {prevBpm:F2} -> {newBpm:F2} BPM ({prevInterval * 1000f:F1} -> {newInterval * 1000f:F1} ms), pitch {prevPitch:F3} -> {newPitch:F3}");
+        }
+        else
+        {
+            Debug.Log($"[tap] Tempo change: interval {prevInterval * 1000f:F1} -> {newInterval * 1000f:F1} ms, pitch {prevPitch:F3} -> {newPitch:F3}");
+        }
     }
 
     // Pauses the track, preserving its position
@@ -323,5 +337,40 @@ public class BeatTimer : MonoBehaviour
     public void ResetBeatCounter()
     {
         beatCounter = -1;
+    }
+
+    // -------------------------------------------------------------------------
+    // Play Your Music / Tap Calibration API
+    // -------------------------------------------------------------------------
+
+    /// <summary>Returns the signed DSP offset (seconds) of the current moment from the nearest beat.
+    /// Positive = tap landed after the beat (late); negative = tap landed before the next beat (early).
+    /// Returns 0 when the track is not running.</summary>
+    public double GetSignedBeatOffset()
+    {
+        if (!begin || !trackStarted) return 0.0;
+        double dsp          = AudioSettings.dspTime;
+        double timeSinceBeat = dsp - lastBeatDsp;
+        double timeUntilBeat = nextBeatDsp - dsp;
+        return timeSinceBeat < timeUntilBeat ? timeSinceBeat : -timeUntilBeat;
+    }
+
+    /// <summary>Re-anchors the beat track to a specific DSP timestamp (typically the last
+    /// calibration tap). Sets nextBeatDsp = anchorDspTime + beatInterval so the first
+    /// post-calibration beat fires exactly one interval after the anchor.
+    /// Sets trackStarted = true so FixedUpdate does not override the anchor.</summary>
+    public void SetPhase(double anchorDspTime)
+    {
+        lastBeatDsp  = anchorDspTime;
+        nextBeatDsp  = anchorDspTime + beatInterval;
+        trackStarted = true;
+        beatFired    = false;
+    }
+
+    /// <summary>Shifts nextBeatDsp by deltaSeconds. Positive shifts beats later;
+    /// negative shifts them earlier. Used by the drift corrector for small in-game nudges.</summary>
+    public void ShiftPhase(double deltaSeconds)
+    {
+        nextBeatDsp += deltaSeconds;
     }
 }

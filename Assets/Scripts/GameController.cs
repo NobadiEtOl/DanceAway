@@ -106,7 +106,7 @@ public class GameController : MonoBehaviour
 
     // Movement Mode
     [Header("Movement Mode")]
-    [SerializeField] private MovementMode currentMovementMode;
+    private MovementMode currentMovementMode;
     [SerializeField] private ControlPlacementController controlPlacement;
 
     // WASD Override
@@ -122,8 +122,61 @@ public class GameController : MonoBehaviour
     private int lastRecordedPerformance = 0;                           // Track last known performance level
     private bool dynamicMusicActive = false;                          // Only apply dynamic adjustments after game starts
 
+    // ── Play Your Music Mode ──────────────────────────────────────────────────
+    [Header("Play Your Music Mode")]
+    [SerializeField] private bool playYourMusicMode = false;
+    [SerializeField] private TapCalibrationController tapCalibration;
+    [SerializeField] private Button pymRecalibrationButton;
+    [Tooltip("Beat window divisor used exclusively in PYM mode, independent of difficulty. Same scale as Easy/Normal/Hard tolerances: smaller = wider window = more forgiving. Default 8 is wider than Easy (12).")]
+    [SerializeField] [Range(4f, 40f)] private float pymBeatTolerance = 8f;
+
+    [Header("Drift Correction")]
+    [SerializeField] [Range(4, 16)]   private int   driftBufferSize         = 8;
+    [SerializeField] [Range(0f, 1f)]  private float driftCorrectionDamping  = 0.5f;   // fraction of bias applied per cycle
+    [SerializeField] [Range(1f, 50f)] private float driftThresholdMs        = 10f;    // ignore biases smaller than this
+    [SerializeField] [Range(5f, 100f)]private float driftMaxCorrectionMs    = 30f;    // cap on a single correction
+    [SerializeField] [Range(1, 16)]   private int   driftCooldownBeatCount  = 4;      // beats before next correction is allowed
+    [Tooltip("PYM mode only: how many consecutive same-direction phase corrections trigger a BPM nudge.")]
+    [SerializeField] [Range(2, 8)]    private int   tempoNudgeConsecutive   = 3;
+    [Tooltip("PYM mode only: fraction of the beat interval to adjust per tempo nudge (0.001 = 0.1%).")]
+    [SerializeField] [Range(0.0001f, 0.01f)] private float tempoNudgeFraction = 0.001f;
+    [Tooltip("PYM mode: moves to buffer before a phase correction (normal uses driftBufferSize). Smaller = faster.")]
+    [SerializeField] [Range(2, 8)]    private int   pymDriftBufferSize      = 4;
+    [Tooltip("PYM mode: beats to wait between phase corrections (normal uses driftCooldownBeatCount). 0-1 = very responsive.")]
+    [SerializeField] [Range(0, 4)]    private int   pymDriftCooldownBeats   = 1;
+    [Tooltip("PYM mode: move inputs to accumulate before re-estimating BPM from gameplay. Fires every N moves.")]
+    [SerializeField] [Range(4, 16)]   private int   pymTempoWindowSize      = 8;
+    [Tooltip("PYM mode: blend fraction toward estimated BPM per cycle. 0.2 = 20% correction per window.")]
+    [SerializeField] [Range(0.05f, 0.5f)] private float pymTempoCorrectionRate = 0.2f;
+
+    [HideInInspector] public bool inCalibration = false;
+    private readonly List<float>  _driftOffsets          = new List<float>();
+    private readonly List<float>  _recentCorrectionSigns = new List<float>();
+    private readonly List<double> _pymMoveTimes          = new List<double>();
+    private int                   _driftCooldownBeats = 0;
+
+    // PYM Cluster Correction — accumulates outlier (OffBeat/FarBeat) moves and fires a large
+    // correction when a consistent cluster of them arrives in a short window.
+    [Header("PYM Cluster Correction")]
+    [Tooltip("Minimum outlier moves needed in the window before cluster analysis fires.")]
+    [SerializeField] [Range(3, 10)]       private int   outlierClusterThreshold             = 5;
+    [Tooltip("Rolling time window in beats. Outliers older than this are discarded.")]
+    [SerializeField] [Range(2f, 12f)]     private float outlierClusterWindowBeats           = 6f;
+    [Tooltip("If the cluster's mean interval deviates more than this fraction from the current BPM, a full BPM+phase change fires instead of a phase shift only.")]
+    [SerializeField] [Range(0.05f, 0.3f)] private float outlierBpmChangeTolerance           = 0.10f;
+    [Tooltip("Beats both correction paths are silenced after a cluster fires, preventing thrashing.")]
+    [SerializeField] [Range(4, 16)]       private int   outlierPostCorrectionCooldownBeats  = 8;
+
+    private struct OutlierEntry { public double DspTime; public float SignedOffsetMs; }
+    private readonly List<OutlierEntry> _outlierBuffer = new List<OutlierEntry>();
+
+    // Settings-screen pause flag: enemies and gameplay logic are frozen but the beat timer
+    // and Time.timeScale keep running so PYM mode stays synced with the player's music.
+    private bool _settingsPaused = false;
+
     public void StartHandleBeatCor()
     {
+        ClosePymInfoScreenIfOpen();
         EnsureSettingsClosed(); // dismiss settings overlay before gameplay begins
         canStart = true;
         player.score = 0;
@@ -131,7 +184,6 @@ public class GameController : MonoBehaviour
         player.PlaceScore();
         healthBar.SetActive(true);
         startScreen.SetActive(false);
-        if(!beatTimer.begin)beatTimer.begin=true;
         player.EnableBeatStateText();
         InitializeDynamicMusic(); // Reset layer tracking
         // Pre-seed avarage so the first scored cycle starts at max (200)
@@ -140,7 +192,28 @@ public class GameController : MonoBehaviour
         dynamicMusicActive = true; // Dynamic music now responds to performance
         difficultyLocked = true;   // Lock difficulty for the rest of this session
         consoleBottomHalf?.ShowGameplay(); // Activate input controls via bottom half controller
+
+        if (!beatTimer.begin) beatTimer.begin = true;
         StartGame();               // Spawn first wave now, using the difficulty the player chose
+
+        if (playYourMusicMode)
+        {
+            // Override difficulty-based tolerance with the PYM-specific static value.
+            beatTimer.SetDifficulty(pymBeatTolerance);
+            // Silence game audio and enter calibration — game world is live, player is timing-free.
+            // Set inCalibration and pause the beat timer here unconditionally so movement
+            // restrictions are lifted even if TapCalibrationController is not yet wired up.
+            SilenceGameAudio();
+            inCalibration = true;
+            beatTimer.PauseTrack();
+            if (tapCalibration != null)
+                tapCalibration.BeginCalibration(isMidGame: false);
+            else
+                Debug.LogWarning("[PlayYourMusic] TapCalibrationController not assigned on GameController.");
+        }
+
+        SetPymRecalibrationButtonVisible(playYourMusicMode);
+
         RefreshCameraForGameplay();
     }
 
@@ -168,6 +241,13 @@ public class GameController : MonoBehaviour
 
         //Initializin onValueChanged for the volume slider
         volumeSlider.onValueChanged.AddListener(AdjustVolume);
+
+        if (pymRecalibrationButton != null)
+        {
+            pymRecalibrationButton.onClick.RemoveListener(BeginRecalibration);
+            pymRecalibrationButton.onClick.AddListener(BeginRecalibration);
+        }
+        SetPymRecalibrationButtonVisible(false);
 
         CenterCamera();
 
@@ -200,7 +280,9 @@ public class GameController : MonoBehaviour
         UpdateLockIcons();
 
         currentMovementMode = (MovementMode)PlayerPrefs.GetInt("MovementMode", (int)MovementMode.ArrowKeys);
-        wasdEnabled = PlayerPrefs.GetInt("WASDEnabled", 1) == 1;
+        wasdEnabled       = PlayerPrefs.GetInt("WASDEnabled", 1) == 1;
+        // PYM is intentionally non-persistent: default to regular mode every launch.
+        playYourMusicMode = false;
 
         // Guarded: IntroSequenceController will call these after the intro walk finishes.
         if (!introRunning)
@@ -231,35 +313,40 @@ public class GameController : MonoBehaviour
 
     void HandleBeat()// Handles all the checks happening once per beat
     {
-
         beatCounter++;
 
         // During intro: allow tile color-switching so the arena looks alive, but block all gameplay.
         if (introRunning) { SwitchColor(); return; }
 
-        if(canStart)StartCoroutine(HandleBeatCoroutine());
-        
+        // Settings overlay: beat keeps running but all gameplay consequences are blocked.
+        if (_settingsPaused) return;
+
+        // Drift correction cooldown: decrement every active beat
+        if (_driftCooldownBeats > 0) _driftCooldownBeats--;
+
+        if (canStart) StartCoroutine(HandleBeatCoroutine());
+
         foreach (var spotlight in spotlights)
         {
-            if(beatCounter%2==0)spotlight.Move();// Spotlights move once per 2 beats since their speed is halved
+            if (beatCounter % 2 == 0) spotlight.Move(); // Spotlights move once per 2 beats since their speed is halved
         }
 
-        if (isSpawningEnemies && canSpawn)
+        if (isSpawningEnemies && canSpawn && !inCalibration)
         {
             enemySpawner.SpawnRemainingEnemies();
         }
 
-        if(canStart && enemies.Count == 0 && !isSpawningEnemies)
+        if (canStart && !inCalibration && enemies.Count == 0 && !isSpawningEnemies)
         {
-            levelManager.LoadLevel();// Load level if only there are no enemies present and none will be spawned
+            levelManager.LoadLevel(); // Load level only when no enemies present and none will be spawned
             gridController.ResetGridBounds();
             crowdController.ResizeCrowd();
         }
-        //Switches the colors of the tiles each beat
+        // Switches the colors of the tiles each beat
         SwitchColor();
 
         // Flash the upcoming boundary tiles so the player can anticipate the crowd closing in
-        if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1)
+        if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1 && !inCalibration)
         {
             gridController.FlashBoundaryTiles();
         }
@@ -269,6 +356,11 @@ public class GameController : MonoBehaviour
     IEnumerator HandleBeatCoroutine()
     {
         if (freezeEnemies)
+        {
+            yield break;
+        }
+
+        if (_settingsPaused)
         {
             yield break;
         }
@@ -292,6 +384,8 @@ public class GameController : MonoBehaviour
     // Runs at OffBeat (after the scoring window closes, before the next beat)
     void HandleOffBeat()
     {
+        if (inCalibration) return;
+        if (_settingsPaused) return;
         // Grid contraction fires here so it never overlaps with the player's scoring window
         if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1)
         {
@@ -357,7 +451,14 @@ public class GameController : MonoBehaviour
         {
             lastRecordedPerformance = avarage;
         }
-    
+
+        // In Play Your Music mode: skip all audio scheduling; avarage cycle still resets below.
+        if (playYourMusicMode)
+        {
+            avarage = 0;
+            return;
+        }
+
         // Always play back beat (foundation layer)
         audioSources[0].volume = 0.6f;
         audioSources[0].PlayScheduled(dspTime);
@@ -469,6 +570,7 @@ public class GameController : MonoBehaviour
 
     public void PlayBackScheduled(double dspTime)
     {
+        if (playYourMusicMode) return;
         audioSources[0].volume = 0.6f;
         audioSources[0].PlayScheduled(dspTime);
     }
@@ -767,7 +869,7 @@ public class GameController : MonoBehaviour
         }
 
         // WASD overlay — fires regardless of the active control scheme.
-        if (wasdEnabled && canStart && !introRunning)
+        if (wasdEnabled && canStart && !introRunning && !_settingsPaused)
         {
             if      (Input.GetKeyDown(KeyCode.W)) { OnArrowUp();    }
             else if (Input.GetKeyDown(KeyCode.S)) { OnArrowDown();  }
@@ -778,6 +880,8 @@ public class GameController : MonoBehaviour
 
     private void HandleBackButton()
     {
+        if (ClosePymInfoScreenIfOpen()) return;
+
         // If settings screen is open, close it
         /*if (settingScreen != null && settingScreen.activeSelf)
         {
@@ -895,6 +999,7 @@ public class GameController : MonoBehaviour
     
     public void OpenEndScreen()
     {
+        SetPymRecalibrationButtonVisible(false);
         EnsureSettingsClosed(); // settings must not linger over the end screen
         SaveRunProgress();
         if (scoreObj != null) scoreObj.SetActive(false);
@@ -949,6 +1054,8 @@ public class GameController : MonoBehaviour
 
     public void  OpenSettingScreen()
     {
+        ClosePymInfoScreenIfOpen();
+
         // Toggle: pressing the settings button while settings is open closes it.
         if (settingScreen != null && settingScreen.activeSelf)
         {
@@ -960,8 +1067,7 @@ public class GameController : MonoBehaviour
         if (retryButton != null) retryButton.gameObject.SetActive(canStart);
         if (canStart)
         {
-            Time.timeScale = 0;
-            beatTimer.PauseTrack();
+            _settingsPaused = true;
         }
     }
 
@@ -970,13 +1076,13 @@ public class GameController : MonoBehaviour
         settingScreen.SetActive(false);
         if (canStart)
         {
-            Time.timeScale = 1;
-            beatTimer.ResumeTrack();
+            _settingsPaused = false;
         }
     }
 
     public void OnTutorialWindowOpened()
     {
+        ClosePymInfoScreenIfOpen();
         EnsureSettingsClosed(); // dismiss settings when the tutorial opens on top
         tutorialWindowOpen = true;
     }
@@ -1160,35 +1266,35 @@ public class GameController : MonoBehaviour
 
     public void OnArrowUp()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         player.SetFacingDirection(Vector2Int.up);
         player.Move(Vector2Int.up);
     }
 
     public void OnArrowDown()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         player.SetFacingDirection(Vector2Int.down);
         player.Move(Vector2Int.down);
     }
 
     public void OnArrowLeft()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         player.SetFacingDirection(Vector2Int.left);
         player.Move(Vector2Int.left);
     }
 
     public void OnArrowRight()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         player.SetFacingDirection(Vector2Int.right);
         player.Move(Vector2Int.right);
     }
 
     public void OnArrowUpLeft()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         Vector2Int dir = new Vector2Int(-1, 1);
         player.SetFacingDirection(dir);
         player.Move(dir);
@@ -1196,7 +1302,7 @@ public class GameController : MonoBehaviour
 
     public void OnArrowUpRight()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         Vector2Int dir = new Vector2Int(1, 1);
         player.SetFacingDirection(dir);
         player.Move(dir);
@@ -1204,7 +1310,7 @@ public class GameController : MonoBehaviour
 
     public void OnArrowDownLeft()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         Vector2Int dir = new Vector2Int(-1, -1);
         player.SetFacingDirection(dir);
         player.Move(dir);
@@ -1212,7 +1318,7 @@ public class GameController : MonoBehaviour
 
     public void OnArrowDownRight()
     {
-        if (!canStart || introRunning) return;
+        if (!canStart || introRunning || _settingsPaused) return;
         Vector2Int dir = new Vector2Int(1, -1);
         player.SetFacingDirection(dir);
         player.Move(dir);
@@ -1355,5 +1461,357 @@ public class GameController : MonoBehaviour
             }
         }
     }*/
+
+    // =========================================================================
+    // Play Your Music Mode — public API & drift correction
+    // =========================================================================
+
+    /// <summary>Enables or disables Play Your Music mode for the current run.</summary>
+    public void SetPlayYourMusicMode(bool on)
+    {
+        playYourMusicMode = on;
+        if (!playYourMusicMode)
+            SetPymRecalibrationButtonVisible(false);
+    }
+
+    /// <summary>Called by the start-screen PYM button to show the PYM info overlay.</summary>
+    public void OpenPymInfoScreen()
+    {
+        if (tapCalibration != null)
+            tapCalibration.OpenPymInfoScreen();
+        else
+            Debug.LogWarning("[PlayYourMusic] TapCalibrationController not assigned on GameController.");
+    }
+
+    /// <summary>Called by the PYM info close button to dismiss the overlay.</summary>
+    public void ClosePymInfoScreen()
+    {
+        if (tapCalibration != null)
+            tapCalibration.ClosePymInfoScreen();
+    }
+
+    /// <summary>Called by the PYM info accept button. Closes the overlay and starts PYM.</summary>
+    public void StartPYMGameFromInfo()
+    {
+        ClosePymInfoScreen();
+        ContextMenu_StartPYMGame();
+    }
+
+    private bool ClosePymInfoScreenIfOpen()
+    {
+        if (tapCalibration == null) return false;
+        if (!tapCalibration.IsPymInfoScreenOpen()) return false;
+        tapCalibration.ClosePymInfoScreen();
+        return true;
+    }
+
+    private void SetPymRecalibrationButtonVisible(bool visible)
+    {
+        if (pymRecalibrationButton == null) return;
+        pymRecalibrationButton.gameObject.SetActive(visible);
+        pymRecalibrationButton.interactable = visible;
+    }
+
+    public bool GetPlayYourMusicMode() => playYourMusicMode;
+
+    /// <summary>Starts a mid-game recalibration session.
+    /// Only valid while Play Your Music mode is active and gameplay has started.</summary>
+    public void BeginRecalibration()
+    {
+        if (!canStart || !playYourMusicMode)
+        {
+            Debug.LogWarning("[TapCalibration] BeginRecalibration: requires Play Your Music mode and active gameplay.");
+            return;
+        }
+        if (tapCalibration != null)
+            tapCalibration.BeginCalibration(isMidGame: true);
+        else
+            Debug.LogWarning("[PlayYourMusic] TapCalibrationController not assigned on GameController.");
+    }
+
+    /// <summary>Called by TapCalibrationController after the 3-beat countdown completes.</summary>
+    public void FinishCalibration(bool wasMidGame)
+    {
+        inCalibration = false;
+        _driftOffsets.Clear();
+        _recentCorrectionSigns.Clear();
+        _pymMoveTimes.Clear();
+        _outlierBuffer.Clear();
+        _driftCooldownBeats = 0;
+        // Re-apply PYM tolerance in case tempo was changed during calibration.
+        if (playYourMusicMode) beatTimer.SetDifficulty(pymBeatTolerance);
+        // StartGame() is not called here — the game was already running before calibration began
+    }
+
+    /// <summary>Records a voluntary player move for phase and tempo correction.
+    /// In normal mode only PerfectBeat/CloseBeat moves contribute to phase correction;
+    /// in PYM mode all non-OffBeat moves feed the phase corrector and every move feeds
+    /// the live BPM estimator.</summary>
+    public void RecordMoveOffset(double signedOffsetSeconds, BeatState state)
+    {
+        if (inCalibration || !canStart) return;
+
+        // PYM outlier cluster detection: capture FarBeat and OffBeat moves BEFORE dropping them.
+        // When the beat has desynced from the player's music these are the dominant move type;
+        // accumulating them lets CheckOutlierCluster fire a large correction to re-lock.
+        if (playYourMusicMode && _driftCooldownBeats == 0
+            && (state == BeatState.FarBeat || state == BeatState.OffBeat))
+        {
+            RecordOutlierAndCheckCluster(AudioSettings.dspTime, (float)(signedOffsetSeconds * 1000.0));
+        }
+
+        if (state == BeatState.OffBeat) return; // completely off-beat: skip normal correction paths
+
+        // PYM mode: only high-quality moves feed the live BPM estimator.
+        // FarBeat/MiddleBeat are still useful for phase correction below but are too
+        // noisy to contribute to interval estimation without corrupting it.
+        if (playYourMusicMode && (state == BeatState.PerfectBeat || state == BeatState.CloseBeat))
+        {
+            _pymMoveTimes.Add(AudioSettings.dspTime);
+            if (_pymMoveTimes.Count >= pymTempoWindowSize + 1)
+                ApplyPymTempoEstimation(); // clears _pymMoveTimes internally
+        }
+
+        // Phase correction — PYM uses a smaller buffer and shorter cooldown
+        if (_driftCooldownBeats > 0) return;
+        if (!playYourMusicMode && state != BeatState.PerfectBeat && state != BeatState.CloseBeat) return;
+
+        _driftOffsets.Add((float)(signedOffsetSeconds * 1000.0)); // store in ms
+        int bufferTarget = playYourMusicMode ? pymDriftBufferSize : driftBufferSize;
+        if (_driftOffsets.Count >= bufferTarget)
+            ApplyDriftCorrection();
+    }
+
+    private void ApplyDriftCorrection()
+    {
+        float mean = 0f;
+        foreach (float o in _driftOffsets) mean += o;
+        mean /= _driftOffsets.Count;
+        _driftOffsets.Clear();
+
+        if (Mathf.Abs(mean) < driftThresholdMs) return; // within the noise floor — skip
+
+        float clamped    = Mathf.Clamp(mean, -driftMaxCorrectionMs, driftMaxCorrectionMs);
+        float correction = clamped * driftCorrectionDamping;
+        // Positive mean = player consistently late → shift beats later (positive offset)
+        beatTimer.ShiftPhase((double)(correction / 1000.0));
+        _driftCooldownBeats = playYourMusicMode ? pymDriftCooldownBeats : driftCooldownBeatCount;
+        Debug.Log($"[DriftCorrection] Mean: {mean:F1} ms, Applied: {correction:F1} ms, Cooldown: {_driftCooldownBeats} beats");
+
+        // PYM mode — Option A tempo nudge:
+        // If the last N phase corrections all pointed the same direction the BPM itself is
+        // slightly wrong (not just the phase). Nudge the beat interval by a tiny fraction.
+        if (!playYourMusicMode) return;
+
+        _recentCorrectionSigns.Add(Mathf.Sign(correction));
+        if (_recentCorrectionSigns.Count > tempoNudgeConsecutive)
+            _recentCorrectionSigns.RemoveAt(0);
+
+        if (_recentCorrectionSigns.Count < tempoNudgeConsecutive) return;
+
+        float dir     = _recentCorrectionSigns[0];
+        bool  allSame = _recentCorrectionSigns.All(s => s == dir);
+        if (!allSame) return;
+
+        // dir > 0: player consistently late → beats too fast → lengthen interval (lower BPM)
+        // dir < 0: player consistently early → beats too slow → shorten interval (raise BPM)
+        float nudge       = beatTimer.beatInterval * tempoNudgeFraction * dir;
+        float newInterval = beatTimer.beatInterval + nudge;
+        beatTimer.SetTempo(newInterval, beatTimer.trackPitch);
+        _recentCorrectionSigns.Clear(); // reset so next nudge needs N fresh corrections
+        Debug.Log($"[TempoNudge] Interval {(nudge >= 0f ? "+" : "")}{nudge * 1000f:F2} ms → {60f / newInterval:F1} BPM");
+    }
+
+    /// <summary>PYM mode only: re-estimates the player's actual BPM from recent move DSP timestamps
+    /// and blends the beat interval toward it. Called automatically every pymTempoWindowSize moves.</summary>
+    private void ApplyPymTempoEstimation()
+    {
+        // Build intervals from the recorded move times
+        var intervals = new List<double>();
+        for (int i = 1; i < _pymMoveTimes.Count; i++)
+            intervals.Add(_pymMoveTimes[i] - _pymMoveTimes[i - 1]);
+        _pymMoveTimes.Clear(); // always reset so the next window is fresh
+
+        // Outlier rejection: discard intervals >25% off the median (same logic as calibration)
+        var sorted = new List<double>(intervals);
+        sorted.Sort();
+        double median = sorted.Count % 2 == 0
+            ? (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) * 0.5
+            : sorted[sorted.Count / 2];
+        var valid = intervals.Where(iv => System.Math.Abs(iv - median) / median <= 0.25).ToList();
+        if (valid.Count < 3) return; // too noisy — skip this window
+
+        double estimatedInterval = valid.Average();
+        float  estimatedBpm      = 60f / (float)estimatedInterval;
+        if (estimatedBpm < 60f || estimatedBpm > 220f) return; // outside valid BPM range
+
+        float prevBpm    = 60f / beatTimer.beatInterval;
+        float blended    = Mathf.Lerp(beatTimer.beatInterval, (float)estimatedInterval, pymTempoCorrectionRate);
+        float blendedBpm = 60f / blended;
+        if (Mathf.Abs(blended - beatTimer.beatInterval) < 0.0001f) return; // no meaningful change
+
+        Debug.Log($"[PYMTempo] Estimated {estimatedBpm:F1} BPM from {valid.Count} moves — blending {prevBpm:F1} → {blendedBpm:F1} BPM");
+        beatTimer.SetTempo(blended, beatTimer.trackPitch);
+    }
+
+    /// <summary>Appends one outlier entry (FarBeat or OffBeat move) and triggers cluster
+    /// analysis when enough entries have accumulated in the rolling window.</summary>
+    private void RecordOutlierAndCheckCluster(double dspTime, float signedOffsetMs)
+    {
+        _outlierBuffer.Add(new OutlierEntry { DspTime = dspTime, SignedOffsetMs = signedOffsetMs });
+
+        // Trim entries that have fallen outside the rolling window.
+        double windowSeconds = outlierClusterWindowBeats * beatTimer.beatInterval;
+        double cutoff        = dspTime - windowSeconds;
+        _outlierBuffer.RemoveAll(e => e.DspTime < cutoff);
+
+        if (_outlierBuffer.Count < outlierClusterThreshold) return;
+
+        // --- Outlier rejection: discard entries whose offset is >1.5 σ from the mean ---
+        float sum = 0f;
+        foreach (var e in _outlierBuffer) sum += e.SignedOffsetMs;
+        float mean = sum / _outlierBuffer.Count;
+
+        float variance = 0f;
+        foreach (var e in _outlierBuffer) variance += (e.SignedOffsetMs - mean) * (e.SignedOffsetMs - mean);
+        float sigma = Mathf.Sqrt(variance / _outlierBuffer.Count);
+
+        var cleanEntries = new List<OutlierEntry>();
+        foreach (var e in _outlierBuffer)
+            if (Mathf.Abs(e.SignedOffsetMs - mean) <= 1.5f * sigma)
+                cleanEntries.Add(e);
+
+        if (cleanEntries.Count < outlierClusterThreshold) return; // not enough survivors
+
+        // Recompute mean from clean entries.
+        float cleanSum = 0f;
+        foreach (var e in cleanEntries) cleanSum += e.SignedOffsetMs;
+        float cleanMean = cleanSum / cleanEntries.Count;
+
+        // Build inter-arrival intervals from clean entry timestamps.
+        var cleanTimes = new List<double>();
+        foreach (var e in cleanEntries) cleanTimes.Add(e.DspTime);
+        cleanTimes.Sort();
+
+        var intervals = new List<double>();
+        for (int i = 1; i < cleanTimes.Count; i++)
+            intervals.Add(cleanTimes[i] - cleanTimes[i - 1]);
+
+        Debug.Log($"[PYMCluster] Cluster detected: {cleanEntries.Count} outliers, mean offset {cleanMean:F1} ms — applying correction.");
+        ApplyClusterCorrection(intervals, cleanMean);
+    }
+
+    /// <summary>Fires a large BPM and/or phase correction based on the outlier cluster.
+    /// If the cluster's implied interval is within <see cref="outlierBpmChangeTolerance"/>
+    /// of the current interval, only a phase shift is applied; otherwise a full BPM re-set
+    /// is performed. All correction buffers are cleared afterward.</summary>
+    private void ApplyClusterCorrection(List<double> clusterIntervals, float meanSignedOffsetMs)
+    {
+        // Phase correction: shift beats by the cluster's mean signed offset.
+        float clamped    = Mathf.Clamp(meanSignedOffsetMs, -driftMaxCorrectionMs, driftMaxCorrectionMs);
+        float correction = clamped * driftCorrectionDamping;
+        beatTimer.ShiftPhase(correction / 1000.0); // convert ms → seconds
+
+        // BPM correction: only if cluster intervals suggest a meaningfully different tempo.
+        if (clusterIntervals.Count >= 2)
+        {
+            double estimatedInterval = 0.0;
+            foreach (double iv in clusterIntervals) estimatedInterval += iv;
+            estimatedInterval /= clusterIntervals.Count;
+
+            float relDiff = Mathf.Abs((float)(estimatedInterval - beatTimer.beatInterval)) / beatTimer.beatInterval;
+            if (relDiff > outlierBpmChangeTolerance)
+            {
+                float estimatedBpm = 60f / (float)estimatedInterval;
+                if (estimatedBpm >= 60f && estimatedBpm <= 220f)
+                {
+                    float blended    = Mathf.Lerp(beatTimer.beatInterval, (float)estimatedInterval, pymTempoCorrectionRate);
+                    float blendedBpm = 60f / blended;
+                    Debug.Log($"[PYMCluster] BPM update: {60f / beatTimer.beatInterval:F1} → {blendedBpm:F1}");
+                    beatTimer.SetTempo(blended, beatTimer.trackPitch);
+                    // Re-anchor phase to the most recent clean outlier so the new tempo
+                    // lines up with where the player actually is.
+                    beatTimer.SetPhase(AudioSettings.dspTime + (correction / 1000.0));
+                }
+            }
+        }
+
+        // Clear all buffers and impose a long cooldown so the standard drift corrector and
+        // tempo estimator don't immediately overwrite the cluster correction.
+        _outlierBuffer.Clear();
+        _driftOffsets.Clear();
+        _recentCorrectionSigns.Clear();
+        _pymMoveTimes.Clear();
+        _driftCooldownBeats = outlierPostCorrectionCooldownBeats;
+    }
+
+    private void SilenceGameAudio()
+    {
+        foreach (var src in audioSources) src.Stop();
+    }
+
+    /// <summary>Called by Player.Move() on every voluntary move during calibration.
+    /// Each movement input counts as a calibration tap.</summary>
+    public void RecordCalibrationTap()
+    {
+        if (tapCalibration != null) tapCalibration.OnTapInput();
+    }
+
+    // =========================================================================
+    // Context Menu testing (Inspector right-click — no UI scene wiring needed)
+    // =========================================================================
+
+    /// <summary>
+    /// MAIN TEST ENTRY POINT: enables PYM mode and starts the full game session.
+    /// This is the only context menu you need to kick off a PYM test run.
+    /// After calling this, use "Simulate Tap" 6+ times (evenly spaced) to calibrate.
+    /// </summary>
+    [ContextMenu("Play Your Music: ★ START PYM Game (use this first)")]
+    private void ContextMenu_StartPYMGame()
+    {
+        SetPlayYourMusicMode(true);
+        StartHandleBeatCor();
+    }
+
+    [ContextMenu("Play Your Music: Toggle Mode (flag only, does not start game)")]
+    private void ContextMenu_TogglePlayYourMusicMode()
+    {
+        SetPlayYourMusicMode(!playYourMusicMode);
+        Debug.Log($"[TapCalibration] Play Your Music Mode: {playYourMusicMode}");
+    }
+
+    [ContextMenu("Play Your Music: Simulate Tap")]
+    private void ContextMenu_SimulateTap()
+    {
+        if (tapCalibration == null) { Debug.LogWarning("[TapCalibration] tapCalibration not assigned."); return; }
+        tapCalibration.OnTapInput();
+    }
+
+    [ContextMenu("Play Your Music: Undo Last Tap")]
+    private void ContextMenu_UndoLastTap()
+    {
+        if (tapCalibration == null) { Debug.LogWarning("[TapCalibration] tapCalibration not assigned."); return; }
+        tapCalibration.UndoLastTap();
+    }
+
+    [ContextMenu("Play Your Music: Confirm Calibration")]
+    private void ContextMenu_ConfirmCalibration()
+    {
+        if (tapCalibration == null) { Debug.LogWarning("[TapCalibration] tapCalibration not assigned."); return; }
+        tapCalibration.ConfirmCalibration();
+    }
+
+    [ContextMenu("Play Your Music: Cancel Calibration")]
+    private void ContextMenu_CancelCalibration()
+    {
+        if (tapCalibration == null) { Debug.LogWarning("[TapCalibration] tapCalibration not assigned."); return; }
+        tapCalibration.CancelCalibration();
+    }
+
+    [ContextMenu("Play Your Music: Recalibrate (mid-game)")]
+    private void ContextMenu_BeginRecalibration()
+    {
+        BeginRecalibration();
+    }
 
 }

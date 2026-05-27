@@ -60,17 +60,18 @@ public class Player : MonoBehaviour
     // call returns immediately (position unchanged, no score, no force).
     private bool _forceLocked = false;
     private Coroutine _forceLockCoroutine;
+    [SerializeField] private float calibrationForceLockSeconds = 0.08f;
 
-    private void StartForceLock()
+    private void StartForceLock(float duration)
     {
         if (_forceLockCoroutine != null) StopCoroutine(_forceLockCoroutine);
-        _forceLockCoroutine = StartCoroutine(ForceLockTimer());
+        _forceLockCoroutine = StartCoroutine(ForceLockTimer(duration));
         _forceLocked = true;
     }
 
-    private IEnumerator ForceLockTimer()
+    private IEnumerator ForceLockTimer(float duration)
     {
-        yield return new WaitForSeconds(beatTimer.beatInterval / 2f);
+        yield return new WaitForSecondsRealtime(duration);
         _forceLocked = false;
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -157,8 +158,13 @@ public class Player : MonoBehaviour
     {
         // Force lock: drop this call entirely if a displacement is already in progress.
         // Prevents stacking forces from multiple enemies, crowd bounces, and player input.
+        // During calibration use a short lock to absorb duplicate touch/mouse callbacks
+        // from a single press while still allowing rapid free movement.
         if (_forceLocked) return;
-        StartForceLock();
+        float lockDuration = gameController.inCalibration
+            ? calibrationForceLockSeconds
+            : beatTimer.beatInterval / 2f;
+        StartForceLock(lockDuration);
 
         // ── Pre-move rb reset ─────────────────────────────────────────────────
         // Zero velocity and snap the Rigidbody to the current logical grid tile before
@@ -181,9 +187,18 @@ public class Player : MonoBehaviour
         currentDirection = direction;
         crowdPushFlag    = pushed;
 
+        // Drift correction: record the signed beat offset for voluntary, non-pushed moves
+        if (!pushed && !autoMove)
+        {
+            gameController.RecordMoveOffset(beatTimer.GetSignedBeatOffset(), State);
+            // During PYM calibration every voluntary move counts as a calibration tap
+            if (gameController.inCalibration)
+                gameController.RecordCalibrationTap();
+        }
+
         // Pushed and auto-moves always succeed; normal moves require good timing
         // and a reasonable move count within the beat window.
-        bool validMove = pushed || autoMove || !(State == BeatState.OffBeat || moveCount > 2);
+        bool validMove = pushed || autoMove || gameController.inCalibration || !(State == BeatState.OffBeat || moveCount > 2);
 
         Debug.Log($"[PlayerAnimationChecks] Move() state — State={State} validMove={validMove} moveCount={moveCount} takingDamage={takingDamage}");
 
