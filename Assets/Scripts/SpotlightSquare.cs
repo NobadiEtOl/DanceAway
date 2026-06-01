@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using System.Collections.Generic;
 using Unity.VisualScripting;
@@ -15,6 +16,7 @@ public class SpotlightSquare: MonoBehaviour
     [SerializeField] private float speed;
     private SpriteRenderer spriteRenderer;
     private List<Vector2Int> initialMoves = new List<Vector2Int>();
+    private bool _isEvacuating = false;
     private Rigidbody2D rb;
     [HideInInspector]public static Dictionary<GameObject, SpotlightSquare> cachedSpotlights = new Dictionary<GameObject, SpotlightSquare>();
     [SerializeField]private List<int> gridBoundsSpotlight = new List<int>();
@@ -126,7 +128,7 @@ public class SpotlightSquare: MonoBehaviour
         else return Vector2Int.zero;
     }
 
-    void UpdateColor()
+    public void UpdateColor()
     {
         if (spriteRenderer == null)
         {
@@ -239,5 +241,21 @@ public class SpotlightSquare: MonoBehaviour
              List<SpotlightSquare> spotlightMergeList=new List<SpotlightSquare>{this,other.gameObject.GetComponent<SpotlightSquare>()};
             gameController.MergeSpotlights(spotlightMergeList);
         }
+    }
+
+    /// <summary>Triggers evacuation: sets movement direction and schedules self-destruction.</summary>
+    public void StartEvacuation(Vector2Int exitDir)
+    {
+        _isEvacuating    = true;
+        currentDirection = exitDir;
+        StartCoroutine(DestroyAfterDelay(6f));
+    }
+
+    private IEnumerator DestroyAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (gameController != null)
+            gameController.spotlights.Remove(this);
+        Destroy(gameObject);
     }
 }

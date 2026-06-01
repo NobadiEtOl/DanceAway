@@ -205,6 +205,7 @@ public class SwipeController : MonoBehaviour, IControlModule
         sector = ((sector % 8) + 8) % 8;
 
         Vector2Int dir = SectorDirections[sector];
+        _holdDirection = dir;  // lock hold direction to confirmed swipe so auto-move stays consistent
         player.SetFacingDirection(dir);
         player.Move(dir, overrideState: _capturedBeatState);
         if (!inCalibration)
@@ -227,6 +228,7 @@ public class SwipeController : MonoBehaviour, IControlModule
         if (gameController != null && gameController.GetPlayYourMusicMode()) return;  // PYM mode: manual input only, no auto-move
         if (!_isHolding)    return;
         if (_movedThisBeat) return;
+        if (_gesture == GestureState.Armed) return;  // intent unknown mid-swipe; avoid moving in the wrong direction
 
         // Recompute from the live finger position for responsiveness.
         Vector2Int dir = ComputeDirectionFromPosition(_holdPos);

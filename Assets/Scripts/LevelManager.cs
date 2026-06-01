@@ -37,6 +37,20 @@ public class LevelManager : MonoBehaviour
         gc.enemiesKilled = 0;
     }
 
+    public void LoadLevelPYM()
+    {
+        gc.levelNo++;
+        if ((gc.levelNo % 5) == 0)
+        {
+            StartCoroutine(Load5PYM());
+        }
+
+        gc.totalTrianglesToSpawn = gc.levelNo * gc.GetDifficultyMultiplier();
+        gc.trianglesSpawned = 0;
+        gc.isSpawningEnemies = true;
+        gc.enemiesKilled = 0;
+    }
+
     private IEnumerator Load5()
     {
         gc.canSpawn = false;
@@ -62,6 +76,19 @@ public class LevelManager : MonoBehaviour
 
         // Atomic tempo snap at a beat boundary — nextBeatDsp is unaffected, no phase jump
         beatTimer.SetTempo(newInterval, newPitch);
+        gc.canSpawn = true;
+    }
+
+    private IEnumerator Load5PYM()
+    {
+        gc.canSpawn = false;
+
+        float approxDuration = beatTimer.beatInterval * 4f;
+        StartCoroutine(AnimateLevelText(approxDuration));
+
+        int targetBeat = beatTimer.beatCounter + 4;
+        yield return new WaitUntil(() => beatTimer.beatCounter >= targetBeat);
+
         gc.canSpawn = true;
     }
 
@@ -175,7 +202,7 @@ public class LevelManager : MonoBehaviour
 
     private IEnumerator AnimateLevelText(float duration)
     {
-        levelText.text = "Level " + gc.levelNo;
+        levelText.text = "SEVİYE " + gc.levelNo;
         levelText.gameObject.SetActive(true);
         Color c = levelText.color;
         float half = duration / 2f;

@@ -144,8 +144,27 @@ public class Player : MonoBehaviour
             Vector2 logicalPos = new Vector2(position.x * tileSize, position.y * tileSize);
             if (rb.velocity.sqrMagnitude < 0.01f && Vector2.Distance(rb.position, logicalPos) > 0.05f)
             {
+                // Model-as-source-of-truth: resolve to the tile the rb is physically closest to.
+                Vector2Int nearestTile = new Vector2Int(
+                    Mathf.RoundToInt(rb.position.x / tileSize),
+                    Mathf.RoundToInt(rb.position.y / tileSize));
+                bool inBounds = nearestTile.x >= gridBoundsPlayer[0] && nearestTile.x < gridBoundsPlayer[1]
+                             && nearestTile.y >= gridBoundsPlayer[2] && nearestTile.y < gridBoundsPlayer[3];
+                if (inBounds)
+                {
+                    // Model wins — backend follows the physical position.
+                    position = nearestTile;
+                }
+                else
+                {
+                    // Out of bounds — clamp to the nearest inbound edge tile.
+                    nearestTile.x = Mathf.Clamp(nearestTile.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+                    nearestTile.y = Mathf.Clamp(nearestTile.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+                    position = nearestTile;
+                }
                 rb.velocity = Vector2.zero;
-                rb.position = logicalPos;
+                rb.position = new Vector2(position.x * tileSize, position.y * tileSize);
+                gameController?.UpdateDebugTilePos(position);
             }
         }
     }
@@ -156,15 +175,13 @@ public class Player : MonoBehaviour
     private int moveCombo=0;
     public void Move(Vector2Int direction, bool pushed=false, BeatState? overrideState = null, bool autoMove = false)
     {
+        // Block all movement during calibration — player cannot move while tapping tempo.
+        if (gameController != null && gameController.inCalibration) return;
+
         // Force lock: drop this call entirely if a displacement is already in progress.
         // Prevents stacking forces from multiple enemies, crowd bounces, and player input.
-        // During calibration use a short lock to absorb duplicate touch/mouse callbacks
-        // from a single press while still allowing rapid free movement.
         if (_forceLocked) return;
-        float lockDuration = gameController.inCalibration
-            ? calibrationForceLockSeconds
-            : beatTimer.beatInterval / 2f;
-        StartForceLock(lockDuration);
+        StartForceLock(beatTimer.beatInterval / 2f);
 
         // ── Pre-move rb reset ─────────────────────────────────────────────────
         // Zero velocity and snap the Rigidbody to the current logical grid tile before
@@ -175,8 +192,17 @@ public class Player : MonoBehaviour
         if (_wrongMoveCoroutine != null) { StopCoroutine(_wrongMoveCoroutine); _wrongMoveCoroutine = null; }
         if (!introMode && rb != null)
         {
+            // Resolve to the nearest inbound tile the rb is physically at,
+            // so the move originates from where the player visually is.
             rb.velocity = Vector2.zero;
+            Vector2Int nearestTile = new Vector2Int(
+                Mathf.RoundToInt(rb.position.x / tileSize),
+                Mathf.RoundToInt(rb.position.y / tileSize));
+            nearestTile.x = Mathf.Clamp(nearestTile.x, gridBoundsPlayer[0], gridBoundsPlayer[1] - 1);
+            nearestTile.y = Mathf.Clamp(nearestTile.y, gridBoundsPlayer[2], gridBoundsPlayer[3] - 1);
+            position = nearestTile;
             rb.position = new Vector2(position.x * tileSize, position.y * tileSize);
+            gameController?.UpdateDebugTilePos(position);
         }
         // ─────────────────────────────────────────────────────────────────────
 
@@ -191,14 +217,11 @@ public class Player : MonoBehaviour
         if (!pushed && !autoMove)
         {
             gameController.RecordMoveOffset(beatTimer.GetSignedBeatOffset(), State);
-            // During PYM calibration every voluntary move counts as a calibration tap
-            if (gameController.inCalibration)
-                gameController.RecordCalibrationTap();
         }
 
         // Pushed and auto-moves always succeed; normal moves require good timing
         // and a reasonable move count within the beat window.
-        bool validMove = pushed || autoMove || gameController.inCalibration || !(State == BeatState.OffBeat || moveCount > 2);
+        bool validMove = pushed || autoMove || !(State == BeatState.OffBeat || moveCount > 2);
 
         Debug.Log($"[PlayerAnimationChecks] Move() state — State={State} validMove={validMove} moveCount={moveCount} takingDamage={takingDamage}");
 

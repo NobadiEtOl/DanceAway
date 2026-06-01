@@ -45,13 +45,17 @@ public class TapCalibrationController : MonoBehaviour
     [Tooltip("Object that scale-punches on each beat once BPM is detected (visual metronome).")]
     [SerializeField] private GameObject metronomeVisual;
 
+    [Header("Calibration References")]
+    [Tooltip("Bottom half controller — switches to calibration panel and back to gameplay.")]
+    [SerializeField] private ConsoleBottomHalfController consoleBottomHalf;
+    [Tooltip("Crowd controller — stops nodding during calibration, restored on finish.")]
+    [SerializeField] private CrowdController crowdController;
+
     [Header("PYM Info Screen")]
     [Tooltip("Root object for the Play Your Music info popup shown from the start screen.")]
     [SerializeField] private GameObject pymInfoScreen;
     [Tooltip("Accept button on the PYM info screen. Starts PYM game flow.")]
     [SerializeField] private Button pymInfoStartButton;
-    [Tooltip("Close button on the PYM info screen.")]
-    [SerializeField] private Button pymInfoCloseButton;
 
     // -------------------------------------------------------------------------
     // Algorithm constants
@@ -59,7 +63,6 @@ public class TapCalibrationController : MonoBehaviour
     private const int   MinTaps            = 6;      // minimum taps before auto-complete is eligible
     private const float MinBpm             = 60f;
     private const float MaxBpm             = 220f;
-    private const float HalfTempoCutoff   = 80f;    // below this raw BPM, assume half-tempo and double
     private const float AutoCompleteSdMs  = 35f;    // stddev threshold (ms) for auto-complete
     private const float OutlierFraction   = 0.25f;  // intervals >25% off the median are discarded
     private const float MetronomeScale    = 1.35f;  // punch scale for the visual metronome
@@ -81,6 +84,8 @@ public class TapCalibrationController : MonoBehaviour
     private float  _savedBeatInterval   = 0f;   // restored on Cancel
     private int    _countdownValue      = 3;
     private Coroutine _metronomeCor;
+    private Coroutine _fillCor;      // animates fill during tapping and drains it during countdown
+    private float     _smoothedFill; // displayed fill value — lags behind computed target
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -96,14 +101,11 @@ public class TapCalibrationController : MonoBehaviour
             pymInfoStartButton.onClick.AddListener(OnPymInfoStartPressed);
         }
 
-        if (pymInfoCloseButton != null)
-        {
-            pymInfoCloseButton.onClick.RemoveListener(ClosePymInfoScreen);
-            pymInfoCloseButton.onClick.AddListener(ClosePymInfoScreen);
-        }
-
         if (pymInfoScreen != null)
             pymInfoScreen.SetActive(false);
+
+        if (calibrationPanel != null)
+            calibrationPanel.SetActive(false);
     }
 
     // -------------------------------------------------------------------------
@@ -123,11 +125,21 @@ public class TapCalibrationController : MonoBehaviour
         _currentSdMs         = float.MaxValue;
         State                = CalibrationState.Idle;
         _gc.inCalibration    = true;
+        _smoothedFill        = 0f;
+        if (_fillCor != null) { StopCoroutine(_fillCor); _fillCor = null; }
 
-        // Always stop the beat timer during calibration so the beat state stops cycling
-        // and enemies remain still. For mid-game, also freeze scaled time.
+        consoleBottomHalf?.ShowCalibration();
+        crowdController?.LessNodders(9999);
+        _bt.SetCalibrationMode(true);
+        _bt.SetCalibrationFill(0f);
+
+        // For mid-game: snapshot and evacuate enemies BEFORE pausing so they can animate out
+        if (isMidGame) _gc.StartEnemyEvacuation();
+
+        // Pause the beat track after evacuation is triggered
         _bt.PauseTrack();
-        if (isMidGame) Time.timeScale = 0f;
+
+        _gc.SetPymRecalibrationButtonVisible(false);
 
         if (calibrationPanel != null) calibrationPanel.SetActive(true);
         UpdateUI();
@@ -138,7 +150,18 @@ public class TapCalibrationController : MonoBehaviour
     /// <summary>Record a tap. Call from the tap button or GameController context menu.</summary>
     public void OnTapInput()
     {
-        if (State == CalibrationState.CountingDown) return;
+        if (State == CalibrationState.CountingDown)
+        {
+            // Refine the calibration with taps made during the countdown.
+            // Phase is already anchored — only the interval is updated.
+            _tapTimes.Add(AudioSettings.dspTime);
+            ComputeAndUpdate();
+            if (_snappedBeatInterval > 0f)
+                _bt.SetTempo(_snappedBeatInterval, _bt.trackPitch);
+            UpdateUI();
+            Debug.Log($"[TapCalibration] Countdown tap #{_tapTimes.Count} — {_currentBpm:F1} BPM, σ={_currentSdMs:F1} ms");
+            return;
+        }
 
         _tapTimes.Add(AudioSettings.dspTime);
 
@@ -146,7 +169,19 @@ public class TapCalibrationController : MonoBehaviour
             State = CalibrationState.Collecting;
 
         if (_tapTimes.Count >= 2)
-            ComputeAndUpdate();
+        {
+            ComputeAndUpdate(); // may auto-confirm and set State = CountingDown
+            if (State != CalibrationState.CountingDown)
+            {
+                // Limit each tap's contribution to MaxFillJumpPerTap to prevent sudden jumps.
+                // Also allow a small decrease if confidence drops (e.g. badly timed tap).
+                const float MaxFillJumpPerTap = 0.12f;
+                float target  = ComputeCalibrationFill();
+                float delta   = target - _smoothedFill;
+                _smoothedFill = Mathf.Clamp01(_smoothedFill + Mathf.Clamp(delta, -0.05f, MaxFillJumpPerTap));
+                _bt.SetCalibrationFill(_smoothedFill);
+            }
+        }
 
         UpdateUI();
         Debug.Log($"[TapCalibration] Tap #{_tapTimes.Count} — {_currentBpm:F1} BPM, σ={_currentSdMs:F1} ms");
@@ -178,20 +213,26 @@ public class TapCalibrationController : MonoBehaviour
             ComputeAndUpdate();
         }
 
+        // Sync displayed fill downward on undo — never exceed the newly-lowered target.
+        float undoTarget = ComputeCalibrationFill();
+        _smoothedFill = Mathf.Min(_smoothedFill, undoTarget);
+        _bt.SetCalibrationFill(_smoothedFill);
+
         UpdateUI();
     }
 
     /// <summary>Apply the calibrated tempo and begin a 3-beat countdown before gameplay.</summary>
     public void ConfirmCalibration()
     {
-        if (_snappedBeatInterval <= 0f)
+        if (_snappedBeatInterval <= 0f || State == CalibrationState.CountingDown)
         {
-            Debug.LogWarning("[TapCalibration] Cannot confirm — no valid interval yet. Keep tapping.");
+            if (_snappedBeatInterval <= 0f)
+                Debug.LogWarning("[TapCalibration] Cannot confirm — no valid interval yet. Keep tapping.");
             return;
         }
 
-        State          = CalibrationState.CountingDown;
-        _countdownValue = 3;
+        State           = CalibrationState.CountingDown;
+        _countdownValue = 4; // fires 3, 2, 1, GO!
 
         // Apply new tempo atomically
         _bt.SetTempo(_snappedBeatInterval, _bt.trackPitch);
@@ -200,15 +241,22 @@ public class TapCalibrationController : MonoBehaviour
         double lastTapDsp = _tapTimes[_tapTimes.Count - 1];
         _bt.SetPhase(lastTapDsp);
 
-        // Unfreeze time if mid-game; inCalibration keeps enemies blocked until FinishCalibration
-        if (_isMidGame)
-            Time.timeScale = 1f;
+        // Fill indicator to full — the drain coroutine will empty it over the countdown.
+        _smoothedFill = 1f;
+        _bt.SetCalibrationFill(1f);
+        // Calibration mode stays ACTIVE — SetCalibrationMode(false) happens in OnCountdownBeat.
 
         // Start the beat track (SetPhase sets trackStarted=true so FixedUpdate won't re-anchor)
         _bt.begin = true;
 
         // Subscribe for the countdown
         _bt.OnBeat += OnCountdownBeat;
+
+        // Drain over beatInterval/2: ends at the midpoint between last tap and first beat,
+        // which is exactly distFromBeat=max (indicator naturally at 0). The indicator then
+        // grows from 0 → full over the remaining beatInterval/2, landing on the first in-phase beat.
+        if (_fillCor != null) StopCoroutine(_fillCor);
+        _fillCor = StartCoroutine(DrainFill(_bt.beatInterval * 0.5f));
 
         StartMetronome();
         UpdateUI();
@@ -219,22 +267,36 @@ public class TapCalibrationController : MonoBehaviour
     /// <summary>Discard calibration and restore the previous beat interval.</summary>
     public void CancelCalibration()
     {
-        _bt.OnBeat -= OnCountdownBeat;
+        if (State == CalibrationState.CountingDown) return;
+
+        _bt.OnBeat -= OnCountdownBeat; // safety unsubscribe
         StopMetronome();
 
+        // Restore saved tempo
         _bt.SetTempo(_savedBeatInterval, _bt.trackPitch);
+        // Re-anchor phase to now (no last tap available)
+        _bt.SetPhase(AudioSettings.dspTime);
 
-        if (_isMidGame)
-        {
-            Time.timeScale = 1f;
-            _bt.ResumeTrack();
-        }
+        State           = CalibrationState.CountingDown;
+        _countdownValue = 4; // fires 3, 2, 1, GO!
 
-        _gc.inCalibration = false;
-        State             = CalibrationState.Idle;
+        // Calibration mode stays ACTIVE — drain from whatever fill is currently shown.
+        // SetCalibrationMode(false) happens in OnCountdownBeat when countdown completes.
 
-        if (calibrationPanel != null) calibrationPanel.SetActive(false);
-        Debug.Log("[TapCalibration] Cancelled. Original tempo restored.");
+        // Start the beat track
+        _bt.begin = true;
+
+        // Subscribe for the countdown
+        _bt.OnBeat += OnCountdownBeat;
+
+        // SetPhase is anchored to now, so beatInterval/2 lands at the natural darkest point.
+        if (_fillCor != null) StopCoroutine(_fillCor);
+        _fillCor = StartCoroutine(DrainFill(_bt.beatInterval * 0.5f));
+
+        StartMetronome();
+        UpdateUI();
+
+        Debug.Log("[TapCalibration] Cancelled. Original tempo restored. Counting in…");
     }
 
     public void OpenPymInfoScreen()
@@ -266,7 +328,7 @@ public class TapCalibrationController : MonoBehaviour
     private void OnCountdownBeat()
     {
         _countdownValue--;
-        string label = _countdownValue > 0 ? _countdownValue.ToString() : "GO!";
+        string label = _countdownValue > 0 ? _countdownValue.ToString() : "!!!";
         if (countdownText != null) countdownText.text = label;
         Debug.Log($"[TapCalibration] Countdown: {label}");
 
@@ -276,6 +338,13 @@ public class TapCalibrationController : MonoBehaviour
         {
             _bt.OnBeat -= OnCountdownBeat;
             StopMetronome();
+            // Stop drain coroutine and ensure fill reaches exactly 0
+            if (_fillCor != null) { StopCoroutine(_fillCor); _fillCor = null; }
+            _smoothedFill = 0f;
+            _bt.SetCalibrationFill(0f);
+            _bt.SetCalibrationMode(false); // safety net — DrainFill already called this
+            // Slide input controls in now that the countdown is fully done
+            consoleBottomHalf?.ShowGameplay();
             State = CalibrationState.Idle;
             if (calibrationPanel != null) calibrationPanel.SetActive(false);
             _gc.FinishCalibration(_isMidGame);
@@ -339,11 +408,10 @@ public class TapCalibrationController : MonoBehaviour
         double sumSq = valid.Sum(v => (v - mean) * (v - mean));
         _currentSdMs = (float)(System.Math.Sqrt(sumSq / valid.Count) * 1000.0);
 
-        // BPM snapping: clamp → half-tempo correction → round to nearest 0.5 BPM
+        // BPM snapping: clamp → half-tempo correction → round to nearest whole BPM
         float rawBpm  = 60f / (float)rawInterval;
         rawBpm        = Mathf.Clamp(rawBpm, MinBpm, MaxBpm);
-        if (rawBpm < HalfTempoCutoff) rawBpm *= 2f;                  // likely tapping on half-beats
-        float snapped = Mathf.Round(rawBpm * 2f) / 2f;               // nearest 0.5 BPM
+        float snapped = Mathf.Round(rawBpm);                          // nearest whole BPM
         snapped       = Mathf.Clamp(snapped, MinBpm, MaxBpm);
 
         _currentBpm          = snapped;
@@ -357,6 +425,8 @@ public class TapCalibrationController : MonoBehaviour
         bool enoughTaps = _tapTimes.Count >= MinTaps;
         bool confident  = _currentSdMs < AutoCompleteSdMs;
 
+        if (State == CalibrationState.CountingDown) return; // already confirmed — countdown taps only refine
+
         if (enoughTaps && confident)
         {
             State = CalibrationState.Ready;
@@ -364,6 +434,40 @@ public class TapCalibrationController : MonoBehaviour
         }
         else if (State == CalibrationState.Ready)
             State = CalibrationState.Collecting; // confidence dropped (e.g. after undo)
+    }
+
+    /// <summary>Returns a 0–1 fill value for the beat indicator based on tap count and σ confidence.
+    /// 0→0.5 driven by tap count progress toward MinTaps; 0.5→1 driven by σ dropping toward AutoCompleteSdMs.</summary>
+    private float ComputeCalibrationFill()
+    {
+        // 60% of the bar grows linearly as tap count approaches MinTaps.
+        float tapProgress = Mathf.Clamp01((float)Mathf.Max(0, _tapTimes.Count - 1) / Mathf.Max(1, MinTaps - 1));
+        // 40% grows as σ drops from 100 ms (noisy) toward 15 ms (locked-in).
+        // Contributes from tap 2 onwards so it builds gradually alongside tap count.
+        float sdRaw = _tapTimes.Count >= 2
+            ? Mathf.Clamp01(1f - Mathf.InverseLerp(15f, 100f, _currentSdMs))
+            : 0f;
+        return tapProgress * 0.6f + sdRaw * 0.4f;
+    }
+
+    // -------------------------------------------------------------------------
+    // UI helpers (all null-safe)
+    // -------------------------------------------------------------------------
+    private void Update()
+    {
+        if (pymInfoScreen == null || !pymInfoScreen.activeSelf) return;
+
+        bool clicked = Input.GetMouseButtonDown(0) ||
+                       (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began);
+        if (!clicked) return;
+
+        Vector2 screenPos = Input.touchCount > 0
+            ? (Vector2)Input.GetTouch(0).position
+            : (Vector2)Input.mousePosition;
+
+        var rt = pymInfoScreen.GetComponent<RectTransform>();
+        if (rt != null && !RectTransformUtility.RectangleContainsScreenPoint(rt, screenPos, null))
+            ClosePymInfoScreen();
     }
 
     // -------------------------------------------------------------------------
@@ -377,17 +481,41 @@ public class TapCalibrationController : MonoBehaviour
         if (confidenceText != null)
         {
             if (_tapTimes.Count < 2)
-                confidenceText.text = "Tap to the beat of your music";
+                confidenceText.text = "MÜZİKLE BERABER BUTONA TIKLA";
             else if (State == CalibrationState.Ready)
-                confidenceText.text = "Ready!";
+                confidenceText.text = "KALİBRE EDİLDİ!";
             else if (_currentSdMs < 40f)
-                confidenceText.text = "Almost ready — keep tapping";
+                confidenceText.text = "NEREDEYSE KALİBRE EDİLDİ...";
             else
-                confidenceText.text = "Keep tapping\u2026";
+                confidenceText.text = "MÜZİKLE BERABER DEVAM ET";
         }
 
         if (countdownText != null)
             countdownText.gameObject.SetActive(State == CalibrationState.CountingDown);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fill drain coroutine — smoothly empties the calibration fill indicator
+    // -------------------------------------------------------------------------
+    private IEnumerator DrainFill(float duration)
+    {
+        float startFill = _smoothedFill;
+        float elapsed   = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t    = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+            float fill = Mathf.Lerp(startFill, 0f, t);
+            _smoothedFill = fill;
+            _bt.SetCalibrationFill(fill);
+            yield return null;
+        }
+        _smoothedFill = 0f;
+        _bt.SetCalibrationFill(0f);
+        // Hand off to live beat-tracking now — indicator is at 0 (midpoint between beats)
+        // and will grow to full over the remaining beatInterval/2 until the first in-phase beat.
+        _bt.SetCalibrationMode(false);
+        _fillCor = null;
     }
 
     // -------------------------------------------------------------------------

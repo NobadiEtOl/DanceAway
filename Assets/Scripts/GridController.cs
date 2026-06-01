@@ -93,8 +93,10 @@ public class GridController : MonoBehaviour
             StartCoroutine(gc.ChangeCameraOrthoSize(gc.CalculateOrthoSizeForBounds(gridBounds[0], gridBounds[1])));
         }
 
-
-        gc.player.ChangeGridBounds();
+        // NOTE: gc.player.ChangeGridBounds() is intentionally NOT called here.
+        // For collapses, the crowd coroutine calls it after the crowd wall physically
+        // arrives (via notifyPlayerOnComplete in CrowdController.ResizeCrowd).
+        // This prevents the player being snapped before the crowd has moved.
     }
 
     public void FlashBoundaryTiles()

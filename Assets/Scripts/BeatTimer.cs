@@ -38,6 +38,15 @@ public class BeatTimer : MonoBehaviour
     private bool beatFired = false;
     [SerializeField]private SnapController snapController;
 
+    // ── Calibration Mode ─────────────────────────────────────────────────────
+    [Header("Calibration Mode")]
+    [Tooltip("Empty RectTransform placed in the Canvas at the soundbar's desired position during calibration.")]
+    [SerializeField] private RectTransform calibrationIndicatorAnchor;
+    private bool      _calibrationMode   = false;
+    private float     _calibrationFill01 = 0f;
+    private Vector2   _normalIndicatorPos;
+    private Coroutine _indicatorMoveCor;
+
     void Awake()
     {
 
@@ -51,6 +60,8 @@ public class BeatTimer : MonoBehaviour
         audioDelay = beatInterval * 0.9f;
         StartCoroutine(PositionFilledBarsNextFrame());
         StartAfterDelay();
+        if (beatIndicatorBackground != null)
+            _normalIndicatorPos = beatIndicatorBackground.anchoredPosition;
     }
 
     // -------------------------------------------------------------------------
@@ -195,6 +206,11 @@ public class BeatTimer : MonoBehaviour
     // Visual-only: runs every rendered frame for finer DSP sampling.
     void Update()
     {
+        if (_calibrationMode)
+        {
+            UpdateIndicatorWithFill(_calibrationFill01);
+            return;
+        }
         if (!begin) return;
         double dsp           = AudioSettings.dspTime;
         double timeSinceBeat = dsp - lastBeatDsp;
@@ -372,5 +388,56 @@ public class BeatTimer : MonoBehaviour
     public void ShiftPhase(double deltaSeconds)
     {
         nextBeatDsp += deltaSeconds;
+    }
+
+    // ── Calibration Mode API ─────────────────────────────────────────────────
+
+    /// <summary>Enables or disables calibration fill mode for the beat indicator.
+    /// In calibration mode the indicator shows a fill driven by SetCalibrationFill()
+    /// instead of the live DSP beat distance. Also animates the indicator to/from
+    /// its calibration anchor position.</summary>
+    public void SetCalibrationMode(bool active)
+    {
+        _calibrationMode = active;
+        if (_indicatorMoveCor != null) StopCoroutine(_indicatorMoveCor);
+        _indicatorMoveCor = StartCoroutine(AnimateIndicatorPos(active));
+        if (!active && _barImages != null)
+            UpdateIndicatorWithFill(0f); // clear fill immediately on exit
+    }
+
+    /// <summary>Sets the calibration fill fraction (0–1) shown on the beat indicator.
+    /// Call after each tap to reflect confidence growth.</summary>
+    public void SetCalibrationFill(float fill01)
+    {
+        _calibrationFill01 = Mathf.Clamp01(fill01);
+        if (_calibrationMode && _barImages != null)
+            UpdateIndicatorWithFill(_calibrationFill01);
+    }
+
+    private void UpdateIndicatorWithFill(float fill01)
+    {
+        if (_barImages == null || _barImages.Length == 0) return;
+        int barsToShow = Mathf.FloorToInt(fill01 * _barImages.Length);
+        for (int i = 0; i < _barImages.Length; i++)
+            if (_barImages[i] != null)
+                _barImages[i].gameObject.SetActive(i < barsToShow);
+    }
+
+    private IEnumerator AnimateIndicatorPos(bool toCalibration)
+    {
+        if (beatIndicatorBackground == null) yield break;
+        Vector2 target = toCalibration && calibrationIndicatorAnchor != null
+            ? calibrationIndicatorAnchor.anchoredPosition
+            : _normalIndicatorPos;
+        Vector2 start = beatIndicatorBackground.anchoredPosition;
+        const float Duration = 0.3f;
+        for (float t = 0f; t < Duration; t += Time.unscaledDeltaTime)
+        {
+            beatIndicatorBackground.anchoredPosition =
+                Vector2.Lerp(start, target, Mathf.SmoothStep(0f, 1f, t / Duration));
+            yield return null;
+        }
+        beatIndicatorBackground.anchoredPosition = target;
+        _indicatorMoveCor = null;
     }
 }

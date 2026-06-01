@@ -27,6 +27,7 @@ public class Triangle : MonoBehaviour
     [HideInInspector]public bool isChasingPlayer = false;
     [HideInInspector]public static Dictionary<GameObject, Triangle> cachedTriangles = new Dictionary<GameObject, Triangle>();
     private int speedMult = 3;
+    private bool _isEvacuating = false;
     public void  Initialize(Vector2Int initialPosition, GameController controller, BeatTimer timer)
     {
         // Giving initial parameters
@@ -205,8 +206,8 @@ public class Triangle : MonoBehaviour
 
     public void Move()
     {
-        // Teleports triangle to the top of the column if they reach the bottom
-        if(position.y <= gridBounds[2])
+        // Teleports triangle to the top of the column if they reach the bottom (skip during evacuation)
+        if(position.y <= gridBounds[2] && !_isEvacuating)
         {
             nextPosition.y = gridBounds[3]-1;
         }
@@ -237,7 +238,7 @@ public class Triangle : MonoBehaviour
         UpdateColor(); // Update the color based on the new power level
     }
 
-    void UpdateColor()
+    public void UpdateColor()
     {
         if (spriteRenderer == null)
         {
@@ -368,6 +369,25 @@ public class Triangle : MonoBehaviour
             List<Triangle> triangleMergeList=new List<Triangle>{this,other.gameObject.GetComponent<Triangle>()};
             gameController.MergeTriangles(triangleMergeList);
         }
+    }
+
+    /// <summary>Triggers the evacuation exit animation. The triangle walks downward and self-destructs.</summary>
+    public void Evacuate(Vector2Int exitDir, float beatIntervalSecs)
+    {
+        _isEvacuating   = true;
+        isChasingPlayer = false;
+        initialMoves.Clear();
+        for (int i = 0; i < 14; i++)
+            initialMoves.Add(exitDir);
+        StartCoroutine(DestroyAfterDelay(beatIntervalSecs * 12f));
+    }
+
+    private IEnumerator DestroyAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (gameController != null)
+            gameController.enemies.Remove(this);
+        Destroy(gameObject);
     }
 
 }

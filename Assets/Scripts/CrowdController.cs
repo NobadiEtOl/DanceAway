@@ -161,9 +161,19 @@ public class CrowdController : MonoBehaviour
     }
 
     private bool canResize=true;
-    public void ResizeCrowd()
+    private Coroutine _resizeCoroutine;
+    public void ResizeCrowd(float duration = -1f, bool notifyPlayerOnComplete = false)
     {
-        if(!canResize) return;
+        // Stop any in-progress resize so a collapse always interrupts an in-flight expansion.
+        // Without this, canResize==false silently drops the collapse call while the camera
+        // and gridBounds have already changed — causing the crowd/camera disconnect.
+        if (_resizeCoroutine != null)
+        {
+            StopCoroutine(_resizeCoroutine);
+            _resizeCoroutine = null;
+            canResize = true;
+        }
+        if (!canResize) return;
 
         int bound = gc.width - gridBounds[1];
         Vector3[] targetPos = new Vector3[]
@@ -174,7 +184,8 @@ public class CrowdController : MonoBehaviour
             topCrowdPos + new Vector3(0, -bound * gc.tileSize, 0)
         };
 
-        StartCoroutine(ChangeCrowdPosToTargets(targetPos, cameraTransitionDuration));
+        float dur = duration > 0f ? duration : cameraTransitionDuration;
+        _resizeCoroutine = StartCoroutine(ChangeCrowdPosToTargets(targetPos, dur, notifyPlayerOnComplete));
     }
 
     public void ResizeCrowdToTargets(Vector3 leftTarget, Vector3 rightTarget, Vector3 bottomTarget, Vector3 topTarget, float duration = -1f)
@@ -202,7 +213,7 @@ public class CrowdController : MonoBehaviour
     }
 
     public float cameraTransitionDuration = 1f;
-    private IEnumerator ChangeCrowdPosToTargets(Vector3[] targetPos, float duration)
+    private IEnumerator ChangeCrowdPosToTargets(Vector3[] targetPos, float duration, bool notifyPlayerOnComplete = false)
     {
         canResize=false;
         float timePassed = 0f;
@@ -216,6 +227,7 @@ public class CrowdController : MonoBehaviour
         {
             SetCrowdWorldPositions(targetPos[0], targetPos[1], targetPos[2], targetPos[3]);
             canResize = true;
+            if (notifyPlayerOnComplete) gc.player.ChangeGridBounds();
             yield break;
         }
 
@@ -238,6 +250,8 @@ public class CrowdController : MonoBehaviour
         );
 
         canResize=true;
+        _resizeCoroutine = null;
+        if (notifyPlayerOnComplete) gc.player.ChangeGridBounds();
 
     }
         

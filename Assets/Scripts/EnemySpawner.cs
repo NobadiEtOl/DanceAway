@@ -80,8 +80,28 @@ public class EnemySpawner : MonoBehaviour
         }
         else return Quaternion.Euler(0,0,0);
     }
-
-    Vector2Int GetOutsideSpawnPosition(HashSet<Vector2Int> occupiedPositions)
+    /// <summary>Spawns a Triangle from a snapshot taken during enemy evacuation.
+    /// Sets powerLevel before Initialize so UpdateColor() gets the right colour,
+    /// then overrides health after Initialize to restore the original value.</summary>
+    public void SpawnSnapshotTriangle(GameController.EnemySnapshot snap, HashSet<Vector2Int> occupied)
+    {
+        Vector2Int pos = GetOutsideSpawnPosition(occupied);
+        if (pos == Vector2Int.zero) return;
+        GameObject go = Instantiate(trianglePrefab,
+            new Vector2(pos.x * gc.tileSize, pos.y * gc.tileSize), GetRoToC(pos));
+        Triangle t = go.GetComponent<Triangle>();
+        // Set powerLevel BEFORE Initialize so UpdateColor() uses the correct value
+        t.powerLevel = snap.powerLevel;
+        t.Initialize(pos, gc, beatTimer);
+        // Override health AFTER Initialize (Initialize resets health from powerLevel)
+        t.health = snap.health;
+        gc.enemies.Add(t);
+        occupied.Add(pos);
+        t.name = ++nameCounter + "Triangle(Restored)";
+        t.SetInitialMoves();
+        gc.gridBoundsFlag = true;
+    }
+    public Vector2Int GetOutsideSpawnPosition(HashSet<Vector2Int> occupiedPositions)
     {
         List<Vector2Int> possiblePositions = new List<Vector2Int>();
         Vector2Int playerPos = gc.player.position;

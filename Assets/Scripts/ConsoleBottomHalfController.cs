@@ -49,6 +49,18 @@ public class ConsoleBottomHalfController : MonoBehaviour
     [Tooltip("Sprite shown on the bottom half during gameplay.")]
     [SerializeField] private Sprite gameplaySprite;
 
+    [Tooltip("Elements shown during calibration (large tap button, etc.).")]
+    [SerializeField] private List<GameObject> calibrationElements;
+    [Tooltip("Sprite shown on the bottom half during calibration.")]
+    [SerializeField] private Sprite calibrationSprite;
+
+    // ── Color Customization ───────────────────────────────────────────────────
+    [Header("Color Customization")]
+    [Tooltip("Mask texture used when the bottom half is showing the loading sprite.")]
+    [SerializeField] private Texture2D loadingMask;
+    [Tooltip("Mask texture used for every non-loading state (start screen, gameplay, etc.).")]
+    [SerializeField] private Texture2D defaultMask;
+
     // ── Animation ─────────────────────────────────────────────────────────────
     [Header("Animation")]
     [Tooltip("How far (canvas units) the bottom half slides down to go off-screen.")]
@@ -59,7 +71,9 @@ public class ConsoleBottomHalfController : MonoBehaviour
     [SerializeField] private AnimationCurve slideCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 
     // ── Private State ─────────────────────────────────────────────────────────
-    private enum BottomHalfState { None, Loading, StartScreen, Tutorial, Gameplay }
+    private enum BottomHalfState { None, Loading, StartScreen, Tutorial, Gameplay, Calibration }
+
+    private static readonly int MaskTexId = Shader.PropertyToID("_MaskTex");
 
     private BottomHalfState _currentState = BottomHalfState.None;
     private Coroutine _transition;
@@ -173,6 +187,11 @@ public class ConsoleBottomHalfController : MonoBehaviour
         _stateBeforePreview            = BottomHalfState.None;
         TransitionTo(BottomHalfState.Gameplay);
     }
+
+    /// <summary>
+    /// Slides the bottom half to show the calibration panel (large tap button).
+    /// </summary>
+    public void ShowCalibration() => TransitionTo(BottomHalfState.Calibration);
 
     /// <summary>
     /// Temporarily slides the bottom half to show the control prefab while the
@@ -291,6 +310,9 @@ public class ConsoleBottomHalfController : MonoBehaviour
         if (bottomHalfImage != null)
             bottomHalfImage.sprite = GetSpriteForState(next);
 
+        // Swap the mask texture to match the incoming sprite.
+        SwapBottomMask(next);
+
         // Cache incoming RTs now so the same list drives pre-shifting,
         // BeatBouncer management, animation, and re-enabling.
         List<RectTransform> inRTs = GetRTs(next);
@@ -376,6 +398,7 @@ public class ConsoleBottomHalfController : MonoBehaviour
         CacheList(loadingElements);
         CacheList(startScreenElements);
         CacheList(tutorialElements);
+        CacheList(calibrationElements);
         if (inputControlHolder != null)
         {
             var rt = inputControlHolder.GetComponent<RectTransform>();
@@ -412,6 +435,7 @@ public class ConsoleBottomHalfController : MonoBehaviour
             case BottomHalfState.Loading:     objs = loadingElements;     break;
             case BottomHalfState.StartScreen: objs = startScreenElements; break;
             case BottomHalfState.Tutorial:    objs = tutorialElements;     break;
+            case BottomHalfState.Calibration: objs = calibrationElements;  break;
             case BottomHalfState.Gameplay:
                 if (inputControlHolder != null)
                 {
@@ -437,6 +461,7 @@ public class ConsoleBottomHalfController : MonoBehaviour
         BottomHalfState.StartScreen => startScreenSprite,
         BottomHalfState.Tutorial    => tutorialSprite,
         BottomHalfState.Gameplay    => gameplaySprite,
+        BottomHalfState.Calibration => calibrationSprite,
         _                           => null
     };
 
@@ -453,6 +478,9 @@ public class ConsoleBottomHalfController : MonoBehaviour
             case BottomHalfState.Tutorial:
                 foreach (var obj in tutorialElements)    if (obj != null) obj.SetActive(true);
                 break;
+            case BottomHalfState.Calibration:
+                foreach (var obj in calibrationElements) if (obj != null) obj.SetActive(true);
+                break;
             case BottomHalfState.Gameplay:
                 if (inputControlHolder != null) inputControlHolder.SetActive(true);
                 break;
@@ -464,6 +492,7 @@ public class ConsoleBottomHalfController : MonoBehaviour
         Deactivate(loadingElements);
         Deactivate(startScreenElements);
         Deactivate(tutorialElements);
+        Deactivate(calibrationElements);
         if (inputControlHolder != null) inputControlHolder.SetActive(false);
     }
 
@@ -537,5 +566,18 @@ public class ConsoleBottomHalfController : MonoBehaviour
             var bb = rt.GetComponent<BeatBouncer>();
             if (bb != null) bb.RefreshOriginalPosition();
         }
+    }
+
+    /// <summary>
+    /// Swaps <c>_MaskTex</c> on <see cref="bottomHalfImage"/>'s material to the mask
+    /// that corresponds to <paramref name="state"/>.
+    /// The loading state uses a distinct mask; all other states share one.
+    /// </summary>
+    private void SwapBottomMask(BottomHalfState state)
+    {
+        if (bottomHalfImage == null || bottomHalfImage.material == null) return;
+        Texture2D mask = state == BottomHalfState.Loading ? loadingMask : defaultMask;
+        if (mask != null)
+            bottomHalfImage.material.SetTexture(MaskTexId, mask);
     }
 }

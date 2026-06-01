@@ -77,6 +77,7 @@ public class GameController : MonoBehaviour
     public bool introRunning = true;
     [SerializeField]private GameObject startScreen;
     [SerializeField]private GameObject settingScreen;
+    [SerializeField]private GameObject customizationScreen;
     [SerializeField] private ConsoleBottomHalfController consoleBottomHalf;
     [SerializeField]private GameObject healthBar;
     [SerializeField]private GameObject scoreObj;
@@ -155,6 +156,12 @@ public class GameController : MonoBehaviour
     private readonly List<double> _pymMoveTimes          = new List<double>();
     private int                   _driftCooldownBeats = 0;
 
+    // RLS state for PYM live tempo estimation — replaces fixed-blend window average.
+    // Gain K shrinks as confidence grows so corrections converge instead of oscillating.
+    private double _rlsT      = 0.5;   // running interval estimate (seconds)
+    private double _rlsP      = 1.0;   // error variance: 1=uncertain, ~0=confident
+    private const  double RlsLambda = 0.97; // forgetting factor (~23-batch half-life)
+
     // PYM Cluster Correction — accumulates outlier (OffBeat/FarBeat) moves and fires a large
     // correction when a consistent cluster of them arrives in a short window.
     [Header("PYM Cluster Correction")]
@@ -170,6 +177,12 @@ public class GameController : MonoBehaviour
     private struct OutlierEntry { public double DspTime; public float SignedOffsetMs; }
     private readonly List<OutlierEntry> _outlierBuffer = new List<OutlierEntry>();
 
+    // ── Enemy Evacuation Snapshots (PYM Recalibration) ────────────────────────────────────
+    public struct EnemySnapshot    { public Vector2Int position; public int health; public int powerLevel; }
+    private struct SpotlightSnapshot { public Vector2Int position; public int powerLevel; }
+    private readonly List<EnemySnapshot>     _evacuatedEnemies    = new List<EnemySnapshot>();
+    private readonly List<SpotlightSnapshot> _evacuatedSpotlights = new List<SpotlightSnapshot>();
+
     // Settings-screen pause flag: enemies and gameplay logic are frozen but the beat timer
     // and Time.timeScale keep running so PYM mode stays synced with the player's music.
     private bool _settingsPaused = false;
@@ -178,6 +191,7 @@ public class GameController : MonoBehaviour
     {
         ClosePymInfoScreenIfOpen();
         EnsureSettingsClosed(); // dismiss settings overlay before gameplay begins
+        EnsureCustomizationClosed();
         canStart = true;
         player.score = 0;
         scoreObj.SetActive(true);
@@ -191,21 +205,19 @@ public class GameController : MonoBehaviour
         lockAvarageAtMax = false;  // Allow avarage to change from now on
         dynamicMusicActive = true; // Dynamic music now responds to performance
         difficultyLocked = true;   // Lock difficulty for the rest of this session
-        consoleBottomHalf?.ShowGameplay(); // Activate input controls via bottom half controller
+        if (!playYourMusicMode)
+            consoleBottomHalf?.ShowGameplay(); // Activate input controls via bottom half controller
 
         if (!beatTimer.begin) beatTimer.begin = true;
-        StartGame();               // Spawn first wave now, using the difficulty the player chose
+        if (!playYourMusicMode)
+            StartGame();           // Spawn first wave; deferred for PYM until FinishCalibration
 
         if (playYourMusicMode)
         {
             // Override difficulty-based tolerance with the PYM-specific static value.
             beatTimer.SetDifficulty(pymBeatTolerance);
-            // Silence game audio and enter calibration — game world is live, player is timing-free.
-            // Set inCalibration and pause the beat timer here unconditionally so movement
-            // restrictions are lifted even if TapCalibrationController is not yet wired up.
+            // Silence game audio. inCalibration and PauseTrack are handled by BeginCalibration.
             SilenceGameAudio();
-            inCalibration = true;
-            beatTimer.PauseTrack();
             if (tapCalibration != null)
                 tapCalibration.BeginCalibration(isMidGame: false);
             else
@@ -259,6 +271,7 @@ public class GameController : MonoBehaviour
         }
 
         settingScreen.SetActive(false);
+        customizationScreen.SetActive(false);
         endScreen.SetActive(false);
         scoreObj.SetActive(false);
 
@@ -338,9 +351,13 @@ public class GameController : MonoBehaviour
 
         if (canStart && !inCalibration && enemies.Count == 0 && !isSpawningEnemies)
         {
-            levelManager.LoadLevel(); // Load level only when no enemies present and none will be spawned
+            if (playYourMusicMode)
+                levelManager.LoadLevelPYM(); // PYM keeps the player-calibrated tempo and no music progression
+            else
+                levelManager.LoadLevel();     // Load level only when no enemies present and none will be spawned
             gridController.ResetGridBounds();
-            crowdController.ResizeCrowd();
+            // Expand over 1 beat — fast, never traps the player, no notify needed.
+            crowdController.ResizeCrowd(beatTimer.beatInterval);
         }
         // Switches the colors of the tiles each beat
         SwitchColor();
@@ -390,7 +407,10 @@ public class GameController : MonoBehaviour
         if (gridBoundsFlag && enemiesKilled >= 5 && enemies.Count > 1)
         {
             gridController.ChangeGridBounds();
-            crowdController.ResizeCrowd();
+            // Collapse takes 3 beats so the physical wall approaches gradually.
+            // notifyPlayerOnComplete defers CheckIfOutside until the crowd arrives.
+            float collapseDuration = beatTimer != null ? beatTimer.beatInterval * 3f : cameraTransitionDuration;
+            crowdController.ResizeCrowd(collapseDuration, notifyPlayerOnComplete: true);
             gridBoundsFlag = false;
         }
     }
@@ -853,6 +873,7 @@ public class GameController : MonoBehaviour
     void Update()
     {
         UpdatePerfectBeatTileColors();
+        HandleOutsideClickDismiss();
 
         // Debug: paint the player's logical tile black every frame so it
         // stays visible even after SwitchColor resets the arena each beat.
@@ -869,12 +890,30 @@ public class GameController : MonoBehaviour
         }
 
         // WASD overlay — fires regardless of the active control scheme.
-        if (wasdEnabled && canStart && !introRunning && !_settingsPaused)
+        if (wasdEnabled && canStart && !introRunning && !_settingsPaused && !inCalibration)
         {
             if      (Input.GetKeyDown(KeyCode.W)) { OnArrowUp();    }
             else if (Input.GetKeyDown(KeyCode.S)) { OnArrowDown();  }
             else if (Input.GetKeyDown(KeyCode.A)) { OnArrowLeft();  }
             else if (Input.GetKeyDown(KeyCode.D)) { OnArrowRight(); }
+        }
+    }
+
+    private void HandleOutsideClickDismiss()
+    {
+        bool clicked = Input.GetMouseButtonDown(0) ||
+                       (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began);
+        if (!clicked) return;
+
+        Vector2 screenPos = Input.touchCount > 0
+            ? (Vector2)Input.GetTouch(0).position
+            : (Vector2)Input.mousePosition;
+
+        if (customizationScreen != null && customizationScreen.activeSelf)
+        {
+            var rt = customizationScreen.GetComponent<RectTransform>();
+            if (rt != null && !RectTransformUtility.RectangleContainsScreenPoint(rt, screenPos, null))
+                CloseCustomizationScreen();
         }
     }
 
@@ -1001,11 +1040,12 @@ public class GameController : MonoBehaviour
     {
         SetPymRecalibrationButtonVisible(false);
         EnsureSettingsClosed(); // settings must not linger over the end screen
+        EnsureCustomizationClosed();
         SaveRunProgress();
         if (scoreObj != null) scoreObj.SetActive(false);
         if (controlPlacement != null) controlPlacement.HideControls();
         endScore.text = player.score.ToString();
-        endLevelText.text = "Level " + levelNo.ToString();
+        endLevelText.text = "SEVİYE " + levelNo.ToString();
         endScreen.SetActive(true);
         consoleBottomHalf?.ShowEndScreen();
     }
@@ -1052,9 +1092,35 @@ public class GameController : MonoBehaviour
         return tempBounds;
     }
 
+    public void OpenCustomizationScreen()
+    {
+        // Toggle: pressing the customization button while it is open closes it.
+        if (customizationScreen != null && customizationScreen.activeSelf)
+        {
+            CloseCustomizationScreen();
+            return;
+        }
+
+        EnsureSettingsClosed();
+        customizationScreen.SetActive(true);
+    }
+
+    public void CloseCustomizationScreen()
+    {
+        if (customizationScreen != null)
+            customizationScreen.SetActive(false);
+    }
+
+    private void EnsureCustomizationClosed()
+    {
+        if (customizationScreen != null && customizationScreen.activeSelf)
+            CloseCustomizationScreen();
+    }
+
     public void  OpenSettingScreen()
     {
         ClosePymInfoScreenIfOpen();
+        EnsureCustomizationClosed();
 
         // Toggle: pressing the settings button while settings is open closes it.
         if (settingScreen != null && settingScreen.activeSelf)
@@ -1084,6 +1150,7 @@ public class GameController : MonoBehaviour
     {
         ClosePymInfoScreenIfOpen();
         EnsureSettingsClosed(); // dismiss settings when the tutorial opens on top
+        EnsureCustomizationClosed();
         tutorialWindowOpen = true;
     }
 
@@ -1505,7 +1572,7 @@ public class GameController : MonoBehaviour
         return true;
     }
 
-    private void SetPymRecalibrationButtonVisible(bool visible)
+    public void SetPymRecalibrationButtonVisible(bool visible)
     {
         if (pymRecalibrationButton == null) return;
         pymRecalibrationButton.gameObject.SetActive(visible);
@@ -1538,9 +1605,74 @@ public class GameController : MonoBehaviour
         _pymMoveTimes.Clear();
         _outlierBuffer.Clear();
         _driftCooldownBeats = 0;
+        _rlsT = beatTimer.beatInterval; // seed RLS from the just-confirmed calibration
+        _rlsP = 1.0;                    // reset to uncertain so first corrections are responsive
         // Re-apply PYM tolerance in case tempo was changed during calibration.
         if (playYourMusicMode) beatTimer.SetDifficulty(pymBeatTolerance);
-        // StartGame() is not called here — the game was already running before calibration began
+        if (!wasMidGame)
+            StartGame(); // Spawn first wave after initial calibration
+        if (wasMidGame)
+            RespawnEvacuatedEnemies();
+        crowdController.MaxNodders();
+        SetPymRecalibrationButtonVisible(playYourMusicMode);
+    }
+
+    /// <summary>Snapshots all live enemies and spotlights, then triggers their exit animation.
+    /// Call BEFORE PauseTrack() so enemies can still move during the exit sequence.</summary>
+    public void StartEnemyEvacuation()
+    {
+        _evacuatedEnemies.Clear();
+        _evacuatedSpotlights.Clear();
+
+        foreach (var e in enemies)
+        {
+            _evacuatedEnemies.Add(new EnemySnapshot
+                { position = e.position, health = e.health, powerLevel = e.powerLevel });
+            e.Evacuate(Vector2Int.down, beatTimer.beatInterval);
+        }
+        enemies.Clear();
+
+        foreach (var s in spotlights)
+        {
+            _evacuatedSpotlights.Add(new SpotlightSnapshot
+                { position = s.position, powerLevel = s.powerLevel });
+            s.StartEvacuation(Vector2Int.down);
+        }
+        spotlights.Clear();
+
+        isSpawningEnemies = false;
+    }
+
+    private void RespawnEvacuatedEnemies()
+    {
+        var occupied = new HashSet<Vector2Int> { player.position };
+
+        foreach (var snap in _evacuatedEnemies)
+            enemySpawner.SpawnSnapshotTriangle(snap, occupied);
+
+        foreach (var snap in _evacuatedSpotlights)
+            SpawnSnapshotSpotlight(snap, occupied);
+
+        if (_evacuatedEnemies.Count > 0 || _evacuatedSpotlights.Count > 0)
+        {
+            gridBoundsFlag = true;
+            UpdateChasingTriangle();
+        }
+
+        _evacuatedEnemies.Clear();
+        _evacuatedSpotlights.Clear();
+    }
+
+    private void SpawnSnapshotSpotlight(SpotlightSnapshot snap, HashSet<Vector2Int> occupied)
+    {
+        Vector2Int pos = enemySpawner.GetOutsideSpawnPosition(occupied);
+        if (pos == Vector2Int.zero) return;
+        GameObject obj = Instantiate(spotLightPrefab,
+            new Vector2(pos.x * tileSize, pos.y * tileSize), Quaternion.identity);
+        SpotlightSquare sq = obj.GetComponent<SpotlightSquare>();
+        sq.Initialize(pos, this, beatTimer, snap.powerLevel);
+        addSpotlight(sq);
+        occupied.Add(pos);
     }
 
     /// <summary>Records a voluntary player move for phase and tempo correction.
@@ -1615,43 +1747,53 @@ public class GameController : MonoBehaviour
 
         // dir > 0: player consistently late → beats too fast → lengthen interval (lower BPM)
         // dir < 0: player consistently early → beats too slow → shorten interval (raise BPM)
-        float nudge       = beatTimer.beatInterval * tempoNudgeFraction * dir;
-        float newInterval = beatTimer.beatInterval + nudge;
+        // Round to the nearest whole BPM and step ±1 in the correction direction.
+        // A fractional nudge (0.1%) would round back to the current BPM and never fire.
+        float currentBpm  = Mathf.Round(60f / beatTimer.beatInterval);
+        float nudgedBpm   = Mathf.Clamp(currentBpm - dir, 60f, 220f); // dir>0=lower, dir<0=raise
+        float newInterval = 60f / nudgedBpm;
         beatTimer.SetTempo(newInterval, beatTimer.trackPitch);
+        _rlsT = newInterval; // keep RLS in sync — prevents the next estimation cycle from reverting this nudge
         _recentCorrectionSigns.Clear(); // reset so next nudge needs N fresh corrections
-        Debug.Log($"[TempoNudge] Interval {(nudge >= 0f ? "+" : "")}{nudge * 1000f:F2} ms → {60f / newInterval:F1} BPM");
+        Debug.Log($"[TempoNudge] {currentBpm:F0} → {nudgedBpm:F0} BPM");
     }
 
-    /// <summary>PYM mode only: re-estimates the player's actual BPM from recent move DSP timestamps
-    /// and blends the beat interval toward it. Called automatically every pymTempoWindowSize moves.</summary>
+    /// <summary>PYM mode only: RLS update of the beat interval from recent move DSP timestamps.
+    /// The Kalman-like gain K shrinks as confidence grows, so early corrections are large and
+    /// fast while later corrections are small and precise — eliminating the fixed-blend oscillation.</summary>
     private void ApplyPymTempoEstimation()
     {
-        // Build intervals from the recorded move times
+        // Build inter-tap intervals from the accumulated move times
         var intervals = new List<double>();
         for (int i = 1; i < _pymMoveTimes.Count; i++)
             intervals.Add(_pymMoveTimes[i] - _pymMoveTimes[i - 1]);
-        _pymMoveTimes.Clear(); // always reset so the next window is fresh
+        _pymMoveTimes.Clear();
 
-        // Outlier rejection: discard intervals >25% off the median (same logic as calibration)
-        var sorted = new List<double>(intervals);
-        sorted.Sort();
-        double median = sorted.Count % 2 == 0
-            ? (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) * 0.5
-            : sorted[sorted.Count / 2];
-        var valid = intervals.Where(iv => System.Math.Abs(iv - median) / median <= 0.25).ToList();
-        if (valid.Count < 3) return; // too noisy — skip this window
+        // Outlier rejection: discard intervals >25% off the current RLS estimate
+        var valid = intervals.Where(iv => System.Math.Abs(iv - _rlsT) / _rlsT <= 0.25).ToList();
+        if (valid.Count == 0) return;
 
-        double estimatedInterval = valid.Average();
-        float  estimatedBpm      = 60f / (float)estimatedInterval;
-        if (estimatedBpm < 60f || estimatedBpm > 220f) return; // outside valid BPM range
+        // RLS update — each valid interval is one scalar measurement of T.
+        // K shrinks each iteration, so the estimate converges rather than bouncing.
+        // P is clamped to a minimum floor so the gain never drops so low that recovery
+        // from a bad stretch of inputs becomes impossibly slow.
+        const double PFloor = 0.02; // K floor ≈ 2% — recovers a 5% BPM error in ~25 moves
+        foreach (double y in valid)
+        {
+            double K = _rlsP / (RlsLambda + _rlsP); // gain: large when uncertain, small when confident
+            _rlsT   += K * (y - _rlsT);              // update interval estimate
+            _rlsP    = System.Math.Max((1.0 / RlsLambda) * (1.0 - K) * _rlsP, PFloor); // update error variance, never below floor
+        }
 
-        float prevBpm    = 60f / beatTimer.beatInterval;
-        float blended    = Mathf.Lerp(beatTimer.beatInterval, (float)estimatedInterval, pymTempoCorrectionRate);
-        float blendedBpm = 60f / blended;
-        if (Mathf.Abs(blended - beatTimer.beatInterval) < 0.0001f) return; // no meaningful change
+        float estimatedBpm = Mathf.Round(60f / (float)_rlsT); // snap to nearest whole BPM
+        if (estimatedBpm < 60f || estimatedBpm > 220f) return;
+        float roundedInterval = 60f / estimatedBpm;           // interval that corresponds to the whole BPM
 
-        Debug.Log($"[PYMTempo] Estimated {estimatedBpm:F1} BPM from {valid.Count} moves — blending {prevBpm:F1} → {blendedBpm:F1} BPM");
-        beatTimer.SetTempo(blended, beatTimer.trackPitch);
+        float prevBpm = Mathf.Round(60f / beatTimer.beatInterval);
+        beatTimer.SetTempo(roundedInterval, beatTimer.trackPitch);
+        // _rlsT intentionally stays as the continuous estimate so RLS math remains smooth;
+        // the snap only affects what beatTimer actually runs at.
+        Debug.Log($"[PYMTempo/RLS] {prevBpm:F0} → {estimatedBpm:F0} BPM  P={_rlsP:F4}");
     }
 
     /// <summary>Appends one outlier entry (FarBeat or OffBeat move) and triggers cluster
@@ -1726,9 +1868,12 @@ public class GameController : MonoBehaviour
                 if (estimatedBpm >= 60f && estimatedBpm <= 220f)
                 {
                     float blended    = Mathf.Lerp(beatTimer.beatInterval, (float)estimatedInterval, pymTempoCorrectionRate);
-                    float blendedBpm = 60f / blended;
-                    Debug.Log($"[PYMCluster] BPM update: {60f / beatTimer.beatInterval:F1} → {blendedBpm:F1}");
-                    beatTimer.SetTempo(blended, beatTimer.trackPitch);
+                    float blendedBpm = Mathf.Round(60f / blended); // snap to nearest whole BPM
+                    float roundedInterval = 60f / blendedBpm;
+                    Debug.Log($"[PYMCluster] BPM update: {Mathf.Round(60f / beatTimer.beatInterval):F0} → {blendedBpm:F0}");
+                    beatTimer.SetTempo(roundedInterval, beatTimer.trackPitch);
+                    _rlsT = roundedInterval; // keep RLS in sync — prevents the next estimation cycle from reverting this correction
+                    _rlsP = System.Math.Max(_rlsP, 0.1); // partially reset confidence so RLS can refine from the new value
                     // Re-anchor phase to the most recent clean outlier so the new tempo
                     // lines up with where the player actually is.
                     beatTimer.SetPhase(AudioSettings.dspTime + (correction / 1000.0));
